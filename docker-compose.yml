@@ -1,0 +1,38 @@
+version: "3.9"
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: lucidcredit
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: lucidcredit
+    ports:
+      - "5440:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+
+  copilot-api:
+    build: ./backend
+    ports:
+      - "8090:8090"
+    env_file: .env
+    depends_on:
+      - db
+      - redis
+
+  copilot-ui:
+    build: ./frontend
+    ports:
+      - "3010:3000"
+    env_file: .env
+    depends_on:
+      - copilot-api
+
+volumes:
+  pgdata:
