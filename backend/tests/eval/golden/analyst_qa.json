@@ -1,0 +1,94 @@
+[
+  {
+    "id": "qa_001",
+    "session_type": "analyst",
+    "question": "What are the primary SHAP drivers for decision ID dec-001?",
+    "ground_truth": "The primary adverse factors are DTI ratio of 0.48 (weight: -0.31) and derogatory payment history in the last 12 months (weight: -0.22), per the SHAP explanation in the CRP API response.",
+    "context": [
+      "SHAP explanation: feature=dti_ratio value=0.48 shap_weight=-0.31",
+      "SHAP explanation: feature=derog_12m value=1 shap_weight=-0.22",
+      "Decision ID: dec-001, outcome: DECLINE, score: 0.34"
+    ]
+  },
+  {
+    "id": "qa_002",
+    "session_type": "analyst",
+    "question": "What is the required adverse action notice timeline under Reg B?",
+    "ground_truth": "Under Regulation B (12 CFR Part 1002), a creditor must notify the applicant of adverse action within 30 days of receiving a completed application.",
+    "context": [
+      "Regulation B, 12 CFR § 1002.9(a)(1): A creditor shall notify an applicant of action taken within 30 days after receiving a completed application."
+    ]
+  },
+  {
+    "id": "qa_003",
+    "session_type": "analyst",
+    "question": "What counterfactual change would most improve the applicant's score for dec-001?",
+    "ground_truth": "Reducing the DTI ratio from 0.48 to below 0.43 is projected to improve the credit score by approximately 12 points, per the counterfactual analysis.",
+    "context": [
+      "Counterfactual: primary_lever=dti_ratio, current=0.48, target=0.43, estimated_improvement=+12 points"
+    ]
+  },
+  {
+    "id": "qa_004",
+    "session_type": "analyst",
+    "question": "Does SR 11-7 require model performance monitoring for third-party vendor models?",
+    "ground_truth": "Yes. SR 11-7 (Board of Governors, 2011) specifies that model risk management expectations apply to models used by a banking organization regardless of whether they are developed internally or by a vendor.",
+    "context": [
+      "SR 11-7, Section V: Model risk management expectations apply to vendor models as well as internally developed models."
+    ]
+  },
+  {
+    "id": "qa_005",
+    "session_type": "analyst",
+    "question": "What is the current 90-day delinquency rate for the gig_worker segment?",
+    "ground_truth": "[REQUIRES_DB_RETRIEVAL] — this question cannot be answered from the regulatory corpus alone.",
+    "context": [
+      "No delinquency rate data was retrieved for the gig_worker segment in this context window."
+    ]
+  },
+  {
+    "id": "qa_006",
+    "session_type": "briefing",
+    "question": "Summarize the key risk drivers for DECLINE decisions in Q1 2026.",
+    "ground_truth": "Based on the portfolio data, the leading adverse factors in Q1 2026 DECLINE decisions were elevated DTI ratios (present in 68% of declines), insufficient credit history (42%), and recent derogatory marks (31%).",
+    "context": [
+      "Portfolio summary Q1 2026: top_decline_factor_1=dti_ratio pct=0.68, top_decline_factor_2=thin_file pct=0.42, top_decline_factor_3=derog_marks pct=0.31"
+    ]
+  },
+  {
+    "id": "qa_007",
+    "session_type": "analyst",
+    "question": "What FCRA disclosure is required when adverse action is based on a credit report?",
+    "ground_truth": "Under FCRA § 615(a), when adverse action is taken based wholly or partly on information in a consumer report, the creditor must provide the applicant with the name and address of the consumer reporting agency and notice of their right to obtain a free copy of the report.",
+    "context": [
+      "FCRA § 615(a): Any person who takes any adverse action with respect to any consumer that is based in whole or in part on any information contained in a consumer report shall provide the consumer with: (1) notice of the adverse action; (2) name and address of the CRA; (3) notice of the right to obtain a free copy."
+    ]
+  },
+  {
+    "id": "qa_008",
+    "session_type": "analyst",
+    "question": "What was the funded loan volume for the auto segment in March 2026?",
+    "ground_truth": "[REQUIRES_DB_RETRIEVAL] — no funded loan volume data for March 2026 auto segment was retrieved.",
+    "context": [
+      "No funded loan volume data was found in the retrieved context for the auto segment in March 2026."
+    ]
+  },
+  {
+    "id": "qa_009",
+    "session_type": "analyst",
+    "question": "What does the model card for the ThinFile Engine say about protected class performance?",
+    "ground_truth": "The ThinFile Engine model card reports that the model was evaluated for disparate impact on protected classes defined under ECOA. The Equal Opportunity Difference metric is within the ±0.10 threshold on gender and race proxies in the validation dataset.",
+    "context": [
+      "ThinFile Engine Model Card, Fairness Section: Equal Opportunity Difference by gender proxy: 0.04. By race proxy: -0.07. Threshold: ±0.10."
+    ]
+  },
+  {
+    "id": "qa_010",
+    "session_type": "analyst",
+    "question": "Explain the ECOA notice requirements for incomplete applications.",
+    "ground_truth": "Under Reg B § 1002.9(c), if an application is incomplete, the creditor must notify the applicant of the information needed to complete the application within 30 days and provide the specific information required.",
+    "context": [
+      "Regulation B, 12 CFR § 1002.9(c)(2): Within 30 days after receiving an incomplete application, the creditor shall provide notice of incompleteness identifying the information required."
+    ]
+  }
+]
