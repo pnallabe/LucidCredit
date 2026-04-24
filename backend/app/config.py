@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     # Admin API key for protected endpoints (e.g. POST /v1/briefing/evaluate-flash)
     admin_api_key: str = ""
 
+    # AgentHiveHQ Integration Gateway
+    # Incoming shared key — must match LUCIDCREDIT_API_KEY in AgentHiveHQ's .env
+    # Leave blank in development to skip auth (all requests pass through).
+    agenthive_incoming_key: str = ""
+
     environment: str = "development"
     log_level: str = "INFO"
 
