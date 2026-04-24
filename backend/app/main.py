@@ -56,12 +56,14 @@ async def _startup() -> None:
 
 from app.api.v1.health import router as health_router  # noqa: E402
 from app.api.v1.applicant import router as applicant_router  # noqa: E402
+from app.api.v1.audit import router as audit_router  # noqa: E402
 from app.api.v1.briefing import router as briefing_router  # noqa: E402
 from app.api.v1.explain import router as explain_router  # noqa: E402
 from app.api.v1.query import router as query_router  # noqa: E402
 
 app.include_router(health_router, prefix="/v1/health", tags=["health"])
 app.include_router(applicant_router, prefix="/v1/applicant", tags=["applicant"])
+app.include_router(audit_router, prefix="/v1/audit", tags=["audit"])
 app.include_router(briefing_router, prefix="/v1/briefing", tags=["briefing"])
 app.include_router(explain_router, prefix="/v1/explain", tags=["explain"])
 app.include_router(query_router, prefix="/v1/query", tags=["query"])

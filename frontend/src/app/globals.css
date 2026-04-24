@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── CSS custom properties ──────────────────────────────────────────────── */
+:root {
+  --brand-50:  #f0fbfc;
+  --brand-100: #d9f5f7;
+  --brand-200: #b2ebee;
+  --brand-300: #7ddbe1;
+  --brand-400: #3fc2cc;
+  --brand-500: #1ea2af;
+  --brand-600: #188494;
+  --brand-700: #166b78;
+  --brand-800: #175764;
+  --brand-900: #174a54;
+  --brand-950: #0b2f38;
+}
+
+/* ─── Dark base ──────────────────────────────────────────────────────────── */
+html {
+  color-scheme: dark;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: #0f172a; /* slate-900 */
+  color: #e2e8f0;             /* slate-200 */
+}
+
+/* ─── Scrollbars ─────────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* ─── Utility classes ────────────────────────────────────────────────────── */
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-out;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

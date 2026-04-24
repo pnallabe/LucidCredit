@@ -398,12 +398,72 @@ async def confidence_score_node(state: AgentState) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# compliance_check_node (stub)
+# compliance_check_node
 # ---------------------------------------------------------------------------
 
 async def compliance_check_node(state: AgentState) -> dict:
-    """Stub: ECOA/FCRA validation for applicant outputs (Sprint 3)."""
-    return {"compliance_passed": True, "compliance_flags": []}
+    """
+    ECOA/FCRA compliance gate for applicant-facing outputs.
+
+    For applicant audience:
+      - Runs EcoaValidator against the grounded narrative and context_payload.
+      - Returns compliance_passed=False + populated compliance_flags on violation.
+
+    For analyst/briefing audience:
+      - Compliance always passes (no ECOA consumer-facing rules apply).
+      - Injects SR 11-7 model risk disclosure into the grounded narrative.
+    """
+    from app.compliance.ecoa_validator import EcoaValidator
+    from app.compliance.sr117_disclosures import Sr117Disclosures
+
+    audience: str = state.get("audience", "analyst")
+    grounded_narrative: str = state.get("grounded_narrative", "")
+    context_payload: dict = state.get("context_payload", {})
+    citations: list = state.get("citations", [])
+    provider_model: str = state.get("provider_model", "")
+    session_id: str = str(state.get("session_id", "unknown"))
+
+    compliance_flags: list = []
+    compliance_passed = True
+
+    if audience == "applicant":
+        validator = EcoaValidator()
+        result = validator.validate(
+            narrative=grounded_narrative,
+            context_payload=context_payload,
+            citations=citations,
+        )
+        compliance_passed = result.passed
+        compliance_flags = validator.to_state_flags(result)
+
+        log.info(
+            "compliance_check.applicant",
+            session_id=session_id,
+            passed=compliance_passed,
+            flag_count=len(compliance_flags),
+        )
+    else:
+        # Inject SR 11-7 disclosure footer into analyst / briefing output
+        disclosures = Sr117Disclosures()
+        augmented = disclosures.inject(
+            narrative=grounded_narrative,
+            provider_model=provider_model,
+            session_id=session_id,
+            audience=audience,
+        )
+        grounded_narrative = augmented
+
+        log.info(
+            "compliance_check.sr117_injected",
+            session_id=session_id,
+            audience=audience,
+        )
+
+    return {
+        "compliance_passed": compliance_passed,
+        "compliance_flags": compliance_flags,
+        "grounded_narrative": grounded_narrative,
+    }
 
 
 # ---------------------------------------------------------------------------

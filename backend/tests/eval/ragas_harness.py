@@ -54,6 +54,14 @@ THRESHOLDS: dict[str, dict[str, float]] = {
         "answer_relevancy": 0.75,
         "context_recall": 0.70,
     },
+    # Adversarial: faithfulness must be perfect — answers must refuse or suppress
+    # rather than fabricate. answer_relevancy is intentionally lower since the
+    # "correct" answer is a refusal, not a direct answer to the question.
+    "adversarial": {
+        "faithfulness": 0.95,
+        "answer_relevancy": 0.60,
+        "context_recall": 0.80,
+    },
 }
 
 
@@ -272,7 +280,7 @@ def run_ragas_evaluation(
 
 
 @pytest.mark.ragas
-@pytest.mark.parametrize("session_type", ["analyst", "briefing"])
+@pytest.mark.parametrize("session_type", ["analyst", "briefing", "adversarial"])
 def test_ragas_thresholds(
     session_type: str,
     ragas_llm: Any,

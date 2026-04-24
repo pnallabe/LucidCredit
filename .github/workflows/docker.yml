@@ -1,0 +1,113 @@
+name: Docker Build & Push
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*.*.*"
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  API_IMAGE: ghcr.io/${{ github.repository_owner }}/lucidcredit-api
+  UI_IMAGE:  ghcr.io/${{ github.repository_owner }}/lucidcredit-ui
+
+jobs:
+  build-push:
+    name: Build & Push Docker images
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+      id-token: write   # for OIDC-based attestations (future)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (multi-platform)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Compute image tags ──────────────────────────────────────────────────
+      - name: Docker metadata — API
+        id: meta-api
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.API_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-,format=short
+
+      - name: Docker metadata — UI
+        id: meta-ui
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.UI_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-,format=short
+
+      # ── Build & push ────────────────────────────────────────────────────────
+      - name: Build & push — copilot-api (backend)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push — copilot-ui (frontend)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: ${{ steps.meta-ui.outputs.tags }}
+          labels: ${{ steps.meta-ui.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            NEXT_PUBLIC_API_BASE_URL=http://copilot-api:8090
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── Smoke test: pull & run the API image ─────────────────────────────────
+      - name: Smoke-test API image (non-destructive)
+        run: |
+          IMAGE=$(echo '${{ steps.meta-api.outputs.tags }}' | head -n1)
+          docker run --rm \
+            -e ANALYST_FALLBACK_ENABLED=false \
+            -e AZURE_OPENAI_ENDPOINT=https://dummy.openai.azure.com/ \
+            -e AZURE_OPENAI_API_KEY=dummy \
+            -e AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-3-large \
+            -e AZURE_OPENAI_CHAT_DEPLOYMENT=gpt-4.1-2025-04-14 \
+            -e AZURE_OPENAI_API_VERSION=2024-10-21 \
+            -e DATABASE_URL=postgresql+asyncpg://lucidcredit:password@db:5432/lucidcredit \
+            -e REDIS_URL=redis://redis:6379 \
+            -e GOOGLE_PROJECT_ID=dummy \
+            -e JWT_SECRET_KEY=smoke-test-secret \
+            --entrypoint python \
+            "$IMAGE" \
+            -c "from app.config import get_settings; s = get_settings(); print('Settings OK:', s.environment)"
