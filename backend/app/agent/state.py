@@ -7,7 +7,7 @@ from uuid import UUID
 
 class RetrievedChunk(TypedDict):
     chunk_id: str
-    source_type: Literal["vector_doc", "api", "db"]
+    source_type: Literal["vector_doc", "api", "db", "clarification"]
     source_ref: str
     content: str
     relevance: Literal["RELEVANT", "IRRELEVANT", "AMBIGUOUS"]
@@ -21,6 +21,12 @@ class AgentState(TypedDict):
     intent: Literal["explain_decision", "analyst_query", "applicant_comms", "portfolio_brief"]
     audience: Literal["analyst", "applicant"]
     context_payload: dict  # raw API inputs (decision_id, application_id, etc.)
+
+    # Context ingestion — clarification round-trip
+    # clarification_items: list of {id, question, options} pending user answer
+    # clarifications:      answers from the user, keyed by item id
+    clarification_items: list[dict]
+    clarifications: dict  # e.g. {"product_type": "Personal loans", "time_period": "2023"}
 
     # Retrieval
     retrieved_chunks: list[RetrievedChunk]

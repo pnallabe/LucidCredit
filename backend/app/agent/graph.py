@@ -60,8 +60,6 @@ def _route_after_grade(state: AgentState) -> str:
         return "error"
     if state.get("retrieval_sufficient"):
         return "reason"
-    # Inject the error code before routing to error_node
-    state["error"] = "INSUFFICIENT_RETRIEVAL"
     return "error"
 
 
@@ -75,7 +73,6 @@ def _route_after_confidence(state: AgentState) -> str:
     if state.get("error"):
         return "error"
     if not state.get("grounding_passed", False):
-        state["error"] = "INSUFFICIENT_GROUNDING"
         return "error"
     if state.get("audience") == "applicant":
         return "compliance_check"
@@ -84,7 +81,6 @@ def _route_after_confidence(state: AgentState) -> str:
 
 def _route_after_compliance(state: AgentState) -> str:
     if not state.get("compliance_passed", True):
-        state["error"] = "COMPLIANCE_FAILED"
         return "error"
     return "format_output"
 
@@ -99,11 +95,16 @@ _graph = None
 async def compile_graph():
     """
     Compile the LangGraph state machine with a Redis checkpointer for session
-    continuity across requests.
+    continuity across requests.  Falls back to an in-memory checkpointer when
+    the Redis package is not installed (local dev without Redis).
 
     Returns a ``CompiledGraph`` instance.
     """
-    from langgraph.checkpoint.redis.aio import AsyncRedisSaver
+    try:
+        from langgraph.checkpoint.redis.aio import AsyncRedisSaver as _AsyncRedisSaver
+        _redis_available = True
+    except ImportError:
+        _redis_available = False
 
     settings = get_settings()
 
@@ -165,8 +166,18 @@ async def compile_graph():
     builder.add_edge("persist_session", END)
     builder.add_edge("error", END)
 
-    # Redis checkpointer
-    checkpointer = AsyncRedisSaver.from_conn_string(settings.redis_url)
+    # Checkpointer: Redis in production, in-memory in local dev
+    checkpointer = None
+    if _redis_available and settings.redis_url:
+        try:
+            # langgraph-checkpoint-redis >= 0.1.x returns an async context manager
+            # from from_conn_string(); enter it and keep it open for the process lifetime.
+            _cm = _AsyncRedisSaver.from_conn_string(settings.redis_url)
+            checkpointer = await _cm.__aenter__()
+            log.info("compile_graph: Redis checkpointer connected (%s)", settings.redis_url)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("compile_graph: Redis checkpointer failed (%s) — running without persistence", exc)
+            checkpointer = None
 
     compiled = builder.compile(checkpointer=checkpointer)
     return compiled

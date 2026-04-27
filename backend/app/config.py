@@ -46,14 +46,20 @@ class Settings(BaseSettings):
 
     redis_url: str = "redis://localhost:6380"
 
-    crp_api_base_url: str = "http://localhost:8081"
+    crp_api_base_url: str = "http://localhost:8001"
     crp_api_key: str = ""
+    analytics_service_key: str = "dev-analytics-key"
 
     thinfile_api_base_url: str = "http://localhost:8000"
     thinfile_api_key: str = ""
 
     min_citation_similarity: float = 0.85
     min_confidence_score: float = 0.75
+    # Lower confidence threshold for advisory/analyst intents where synthesized answers
+    # from LLM domain knowledge are expected and cannot be fully grounded against BQ rows.
+    # "Why" / "Explain" / "How should" questions score ~0.30-0.45 because the
+    # citation enforcer cannot match reasoning sentences to a BigQuery "no data" chunk.
+    advisory_confidence_score: float = 0.35
 
     # Admin API key for protected endpoints (e.g. POST /v1/briefing/evaluate-flash)
     admin_api_key: str = ""
@@ -65,6 +71,12 @@ class Settings(BaseSettings):
 
     environment: str = "development"
     log_level: str = "INFO"
+
+    # === Development stubs ===
+    # When True (development only), reason_node returns a canned response instead
+    # of calling any external LLM.  Useful for UI/pipeline testing before Azure
+    # deployments are provisioned.  MUST be False in staging/production.
+    dev_llm_stub: bool = False
 
     @model_validator(mode="after")
     def _validate_provider_config(self) -> "Settings":
@@ -80,6 +92,8 @@ class Settings(BaseSettings):
             raise ValueError(
                 "google_project_id must be set when analyst_fallback_enabled == True"
             )
+        if self.dev_llm_stub and self.environment != "development":
+            raise ValueError("dev_llm_stub=True is only allowed in development environment")
         return self
 
     def model_version_hash(self, provider: str, deployment: str) -> str:

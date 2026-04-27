@@ -111,7 +111,7 @@ async def analyst_query(
     }
 
     try:
-        graph = get_graph()
+        graph = await get_graph()
         config = {"configurable": {"thread_id": str(session_id)}}
         final_state = await graph.ainvoke(initial_state, config=config)
     except Exception as exc:
@@ -220,7 +220,7 @@ async def _run_agent_streaming(
     }
 
     try:
-        graph = get_graph()
+        graph = await get_graph()
         config = {"configurable": {"thread_id": str(session_id)}}
 
         # Emit initial status

@@ -102,7 +102,7 @@ async def explain_decision(
     }
 
     try:
-        graph = get_graph()
+        graph = await get_graph()
         config = {"configurable": {"thread_id": str(session_id)}}
         final_state = await graph.ainvoke(initial_state, config=config)
     except Exception as exc:

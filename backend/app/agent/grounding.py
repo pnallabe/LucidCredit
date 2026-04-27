@@ -82,6 +82,7 @@ class CitationEnforcer:
         self,
         narrative: str,
         graded_chunks: List[RetrievedChunk],
+        settings_override=None,
     ) -> dict:
         """
         Ground each sentence in *narrative* against *graded_chunks*.
@@ -90,8 +91,11 @@ class CitationEnforcer:
             grounded_narrative: str      — sentences that passed grounding joined by space
             citations: list[dict]        — one citation record per grounded sentence
             suppressed_claims: list[dict] — sentences that were suppressed (with reason)
+
+        ``settings_override`` allows callers to pass a Settings-like object to
+        override the configured threshold (used for domain knowledge responses).
         """
-        settings = get_settings()
+        settings = settings_override if settings_override is not None else get_settings()
         threshold: float = settings.min_citation_similarity
 
         sentences = _split_into_sentences(narrative)
@@ -122,8 +126,8 @@ class CitationEnforcer:
         # Embed sentences and chunk content in two batches.
         claim_embeddings: List[List[float]] = await batch_embed(sentences)
 
-        # Cap chunk content at 512 chars to stay within token limits.
-        chunk_texts = [c["content"][:512] for c in relevant_chunks]
+        # Cap chunk content at 4096 chars — text-embedding-3-large supports 8191 tokens.
+        chunk_texts = [c["content"][:4096] for c in relevant_chunks]
         chunk_embeddings: List[List[float]] = await batch_embed(chunk_texts)
 
         grounded_sentences: List[str] = []

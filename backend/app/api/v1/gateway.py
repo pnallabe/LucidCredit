@@ -111,6 +111,13 @@ class AuditBlock(BaseModel):
     latency_ms: float = 0.0
 
 
+class ClarificationItem(BaseModel):
+    """A single pending clarifying question surfaced to the caller."""
+    id: str = ""
+    question: str
+    options: List[str] = Field(default_factory=list)
+
+
 class NormalisedResponse(BaseModel):
     """Exactly matches AgentHiveHQ integrations.schemas.NormalisedResponse."""
 
@@ -124,6 +131,9 @@ class NormalisedResponse(BaseModel):
     source: str = "lucidcredit-copilot"
     product_id: str = "lucidcredit-copilot-v1"
     raw_extra: Dict[str, Any] = Field(default_factory=dict)
+    # Context ingestion — set when the agent needs user clarification before answering
+    needs_clarification: bool = False
+    clarification_items: List[ClarificationItem] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -260,9 +270,11 @@ async def gateway_invoke(
 
     # ── Demo fast-path ────────────────────────────────────────────────────────
     if demo_mode and scenario_tag:
-        response = _DEMO_RESPONSES.get(scenario_tag)
-        if response is not None:
-            return response
+        template = _DEMO_RESPONSES.get(scenario_tag)
+        if template is not None:
+            # Return a fresh copy with a new decision_id on every call so that
+            # AgentHiveHQ's audit table (decisions.id PK) never gets a duplicate.
+            return template.model_copy(update={"decision_id": str(_uuid.uuid4())})
         # Unknown demo scenario → fall through to live path with a safe default query
 
     # ── Route by session_type ─────────────────────────────────────────────────
@@ -317,34 +329,73 @@ async def _invoke_analyst(
         "context_payload": {
             "data_scope": inputs.get("data_scope", []),
             "sql_query": inputs.get("sql_query", ""),
+            # Context ingestion: pass caller-supplied clarification answers so
+            # ask_analytics() can skip ambiguity detection on second+ turns.
+            "clarifications": inputs.get("clarifications") or {},
         },
     }
 
-    graph = get_graph()
+    graph = await get_graph()
     config = {"configurable": {"thread_id": str(session_id)}}
     final_state = await graph.ainvoke(initial_state, config=config)
 
     latency_ms = (time.monotonic() - t0) * 1000
-    answer: str = final_state.get("answer", "")
-    citations: list = final_state.get("citations", [])
-    confidence: float = float(final_state.get("confidence_score", 0.0))
-    suppressed: list = final_state.get("suppressed_claims", [])
+    final_output: dict = final_state.get("final_output") or {}
+    error_code: str | None = final_output.get("error") or final_state.get("error")
+
+    # final_output["narrative"] holds the grounded answer; fall back through
+    # grounded_narrative → raw_llm_output for debugging when grounding fails.
+    answer: str = (
+        final_output.get("narrative")
+        or final_state.get("grounded_narrative")
+        or final_state.get("raw_llm_output")
+        or ""
+    )
+    citations: list = final_output.get("citations") or final_state.get("citations") or []
+    confidence: float = float(final_output.get("confidence_score") or final_state.get("confidence_score") or 0.0)
+    suppressed: list = final_output.get("suppressed_claims") or final_state.get("suppressed_claims") or []
+    provider_used: str = final_state.get("provider_used") or ""
 
     reason_codes: list[str] = []
-    if confidence < 0.75:
+    if error_code:
+        reason_codes.append(error_code)
+    elif confidence < 0.75:
         reason_codes.append("LOW_CONFIDENCE")
     if suppressed:
         reason_codes.append("CLAIMS_SUPPRESSED")
 
+    model_ver = provider_used or get_settings().model_version_hash(
+        "azure", get_settings().azure_openai_deployment_analyst
+    )
+
+    # --- Context ingestion: extract pending clarification questions if present ---
+    raw_clarification_items: list = final_output.get("clarification_items") or []
+    needs_clarification: bool = bool(final_output.get("needs_clarification", False))
+    clarification_items = [
+        ClarificationItem(
+            id=item.get("id", ""),
+            question=item.get("question", ""),
+            options=item.get("options", []),
+        )
+        for item in raw_clarification_items
+    ]
+
+    # When clarification is needed, use the narrative as the summary
+    # (it will be the agent's phrased follow-up question to the user).
+    summary_text = (
+        answer[:500]
+        if answer
+        else (f"Agent error: {error_code}" if error_code else "No answer generated.")
+    )
+
     return NormalisedResponse(
         decision_id=str(session_id),
-        decision="analyst_response",
-        summary=answer[:500] if answer else "No answer generated.",
+        decision="clarification_needed" if needs_clarification else "analyst_response",
+        summary=summary_text,
         details={
             "full_answer": answer,
             "confidence_score": confidence,
-            "sql_queries_executed": final_state.get("sql_queries_executed", []),
-            "follow_up_suggestions": final_state.get("follow_up_suggestions", []),
+            "intent": final_output.get("intent", ""),
         },
         explanations={
             c.get("source_ref", f"cite_{i}"): c.get("confidence", 0.0)
@@ -352,9 +403,7 @@ async def _invoke_analyst(
         },
         reason_codes=reason_codes,
         audit=AuditBlock(
-            model_version=get_settings().model_version_hash(
-                "azure", get_settings().azure_openai_deployment_analyst
-            ),
+            model_version=model_ver,
             timestamp=_now_iso(),
             latency_ms=round(latency_ms, 1),
         ),
@@ -362,7 +411,10 @@ async def _invoke_analyst(
             "session_id": str(session_id),
             "citations": citations,
             "suppressed_claims": suppressed,
+            "provider_used": provider_used,
         },
+        needs_clarification=needs_clarification,
+        clarification_items=clarification_items,
     )
 
 
@@ -401,43 +453,60 @@ async def _invoke_applicant(
         },
     }
 
-    graph = get_graph()
+    graph = await get_graph()
     config = {"configurable": {"thread_id": str(session_id)}}
     final_state = await graph.ainvoke(initial_state, config=config)
 
     latency_ms = (time.monotonic() - t0) * 1000
-    body_text: str = final_state.get("body", "")
-    aan: dict = final_state.get("adverse_action_notice", {})
-    compliance_validated: bool = bool(final_state.get("compliance_validated", False))
+    final_output: dict = final_state.get("final_output") or {}
+    error_code: str | None = final_output.get("error") or final_state.get("error")
+
+    body_text: str = (
+        final_output.get("narrative")
+        or final_state.get("grounded_narrative")
+        or final_state.get("raw_llm_output")
+        or ""
+    )
+    compliance_validated: bool = bool(final_state.get("compliance_passed", not bool(error_code)))
+    compliance_flags: list = final_output.get("compliance_flags") or final_state.get("compliance_flags") or []
+    citations: list = final_output.get("citations") or final_state.get("citations") or []
+    provider_used: str = final_state.get("provider_used") or ""
 
     decision_map = {"decline": "reject", "approve": "approve", "counteroffer": "review", "incomplete": "review"}
     decision = decision_map.get(communication_type, "review")
 
+    reason_codes: list[str] = [c.get("code", str(c)) if isinstance(c, dict) else str(c) for c in compliance_flags]
+    if error_code and not reason_codes:
+        reason_codes = [error_code]
+
+    model_ver = provider_used or get_settings().model_version_hash(
+        "azure", get_settings().azure_openai_deployment_applicant
+    )
+
     return NormalisedResponse(
         decision_id=str(session_id),
         decision=decision,
-        summary=final_state.get("subject_line", body_text[:200]),
+        summary=body_text[:500] if body_text else (f"Agent error: {error_code}" if error_code else "No communication generated."),
         details={
             "application_id": str(application_id),
-            "body": body_text,
-            "adverse_action_notice": aan,
+            "full_body": body_text,
             "compliance_validated": compliance_validated,
+            "compliance_flags": compliance_flags,
             "channel": channel,
             "communication_type": communication_type,
         },
         explanations={},
-        reason_codes=aan.get("reason_codes", []),
+        reason_codes=reason_codes,
         audit=AuditBlock(
-            model_version=get_settings().model_version_hash(
-                "azure", get_settings().azure_openai_deployment_applicant
-            ),
+            model_version=model_ver,
             timestamp=_now_iso(),
             latency_ms=round(latency_ms, 1),
         ),
         raw_extra={
             "session_id": str(session_id),
-            "citations": final_state.get("citations", []),
+            "citations": citations,
             "compliance_validated": compliance_validated,
+            "provider_used": provider_used,
         },
     )
 
@@ -464,34 +533,52 @@ async def _invoke_briefing(
         },
     }
 
-    graph = get_graph()
+    graph = await get_graph()
     config = {"configurable": {"thread_id": str(session_id)}}
     final_state = await graph.ainvoke(initial_state, config=config)
 
     latency_ms = (time.monotonic() - t0) * 1000
-    narrative: str = final_state.get("narrative", final_state.get("answer", ""))
+    final_output: dict = final_state.get("final_output") or {}
+    error_code: str | None = final_output.get("error") or final_state.get("error")
+
+    narrative: str = (
+        final_output.get("narrative")
+        or final_state.get("grounded_narrative")
+        or final_state.get("raw_llm_output")
+        or ""
+    )
+    citations: list = final_output.get("citations") or final_state.get("citations") or []
+    confidence: float = float(final_output.get("confidence_score") or final_state.get("confidence_score") or 0.0)
+    provider_used: str = final_state.get("provider_used") or ""
+
+    reason_codes: list[str] = [error_code] if error_code else (["LOW_CONFIDENCE"] if confidence < 0.75 else [])
+    model_ver = provider_used or get_settings().model_version_hash(
+        "azure", get_settings().azure_openai_deployment_analyst
+    )
 
     return NormalisedResponse(
         decision_id=str(session_id),
         decision="briefing_generated",
-        summary=narrative[:500] if narrative else "No briefing generated.",
+        summary=narrative[:500] if narrative else (f"Agent error: {error_code}" if error_code else "No briefing generated."),
         details={
             "full_narrative": narrative,
             "period": inputs.get("period", "Q1 2026"),
-            "confidence_score": float(final_state.get("confidence_score", 0.0)),
+            "confidence_score": confidence,
         },
-        explanations={},
-        reason_codes=[],
+        explanations={
+            c.get("source_ref", f"cite_{i}"): c.get("confidence", 0.0)
+            for i, c in enumerate(citations[:10])
+        },
+        reason_codes=reason_codes,
         audit=AuditBlock(
-            model_version=get_settings().model_version_hash(
-                "azure", get_settings().azure_openai_deployment_analyst
-            ),
+            model_version=model_ver,
             timestamp=_now_iso(),
             latency_ms=round(latency_ms, 1),
         ),
         raw_extra={
             "session_id": str(session_id),
-            "citations": final_state.get("citations", []),
+            "citations": citations,
+            "provider_used": provider_used,
         },
     )
 
