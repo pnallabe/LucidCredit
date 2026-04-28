@@ -172,6 +172,10 @@ _REASONING_BYPASS_PATTERNS: list[re.Pattern[str]] = [
 _ALWAYS_BYPASS_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"\bcreate\s+a\s+metric\b", re.IGNORECASE),
     re.compile(r"\bdefine\s+(?:a\s+)?(?:custom|new|your\s+own)\s+metric\b", re.IGNORECASE),
+    # Metrics explicitly not tracked in this dataset — always route to domain knowledge
+    # so the "not available" phrase from the domain knowledge chunk is used.
+    re.compile(r"\bprepayment\b", re.IGNORECASE),
+    re.compile(r"\bltv\s+distribution\b", re.IGNORECASE),
 ]
 _REASONING_BYPASS_SUPPRESS: list[re.Pattern[str]] = [
     re.compile(r"\bshow\s+(?:me\s+)?(?:the\s+)?data\b", re.IGNORECASE),
