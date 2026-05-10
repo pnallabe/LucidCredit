@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import json
 import uuid as _uuid
-from typing import AsyncGenerator, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 from uuid import UUID
 
 import structlog
@@ -45,6 +45,12 @@ router = APIRouter()
 # Schemas
 # ---------------------------------------------------------------------------
 
+class ClarificationItemSchema(BaseModel):
+    id: str
+    question: str
+    options: List[str] = Field(default_factory=list)
+
+
 class AnalystQueryRequest(BaseModel):
     query: str = Field(..., min_length=3, max_length=4000)
     data_scope: List[str] = Field(
@@ -59,6 +65,10 @@ class AnalystQueryRequest(BaseModel):
             "Must reference only allow-listed tables."
         ),
     )
+    clarifications: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Answers to prior clarification questions, keyed by item id.",
+    )
 
 
 class CitationSchema(BaseModel):
@@ -68,6 +78,20 @@ class CitationSchema(BaseModel):
     confidence: float
 
 
+class ReasoningContextItem(BaseModel):
+    source_type: str
+    source_ref: str
+    relevance: str
+    snippet: str
+
+
+class ReasoningTrace(BaseModel):
+    retrieval_method: str = ""
+    retrieved_context: List[ReasoningContextItem] = Field(default_factory=list)
+    raw_analysis: str = ""
+    suppressed_claims: List[Dict[str, Any]] = Field(default_factory=list)
+
+
 class AnalystQueryResponse(BaseModel):
     session_id: UUID
     answer: str
@@ -75,6 +99,9 @@ class AnalystQueryResponse(BaseModel):
     sql_queries_executed: List[str] = Field(default_factory=list)
     confidence_score: float
     follow_up_suggestions: List[str] = Field(default_factory=list)
+    needs_clarification: bool = False
+    clarification_items: List[ClarificationItemSchema] = Field(default_factory=list)
+    reasoning_trace: Optional[ReasoningTrace] = None
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +134,7 @@ async def analyst_query(
         "context_payload": {
             "data_scope": request.data_scope,
             "sql_query": request.sql_query or "",
+            "clarifications": request.clarifications or {},
         },
     }
 
@@ -119,6 +147,41 @@ async def analyst_query(
         raise HTTPException(status_code=500, detail={"error": "GRAPH_ERROR", "message": str(exc)})
 
     output: dict = final_state.get("final_output", {})
+
+    # Clarification short-circuit — return 200 with structured clarification payload
+    if output.get("needs_clarification"):
+        raw_items: list = output.get("clarification_items") or []
+        c_items = [
+            ClarificationItemSchema(
+                id=it.get("id", ""),
+                question=it.get("question", ""),
+                options=it.get("options") or [],
+            )
+            for it in raw_items
+        ]
+        # Include a partial reasoning trace so the audit trail shows what was
+        # attempted before clarification was requested.
+        raw_trace = output.get("reasoning_trace") or {}
+        clarif_trace: Optional[ReasoningTrace] = None
+        if raw_trace:
+            clarif_trace = ReasoningTrace(
+                retrieval_method=raw_trace.get("retrieval_method", ""),
+                retrieved_context=[
+                    ReasoningContextItem(**item)
+                    for item in (raw_trace.get("retrieved_context") or [])
+                ],
+                raw_analysis=raw_trace.get("raw_analysis", ""),
+                suppressed_claims=raw_trace.get("suppressed_claims") or [],
+            )
+        bound_log.info("analyst_query_clarification", item_count=len(c_items))
+        return AnalystQueryResponse(
+            session_id=session_id,
+            answer=output.get("narrative", ""),
+            confidence_score=0.0,
+            needs_clarification=True,
+            clarification_items=c_items,
+            reasoning_trace=clarif_trace,
+        )
 
     # Error routing
     if "error" in output:
@@ -160,6 +223,19 @@ async def analyst_query(
         if c.get("source_type") == "db"
     ]
 
+    raw_trace = output.get("reasoning_trace") or {}
+    reasoning_trace: Optional[ReasoningTrace] = None
+    if raw_trace:
+        reasoning_trace = ReasoningTrace(
+            retrieval_method=raw_trace.get("retrieval_method", ""),
+            retrieved_context=[
+                ReasoningContextItem(**item)
+                for item in (raw_trace.get("retrieved_context") or [])
+            ],
+            raw_analysis=raw_trace.get("raw_analysis", ""),
+            suppressed_claims=raw_trace.get("suppressed_claims") or [],
+        )
+
     return AnalystQueryResponse(
         session_id=session_id,
         answer=output.get("narrative", output.get("grounded_narrative", "")),
@@ -167,6 +243,9 @@ async def analyst_query(
         sql_queries_executed=sql_executed,
         confidence_score=float(output.get("confidence_score", 0.0)),
         follow_up_suggestions=output.get("follow_up_suggestions", []),
+        needs_clarification=False,
+        clarification_items=[],
+        reasoning_trace=reasoning_trace,
     )
 
 
@@ -198,6 +277,7 @@ async def _run_agent_streaming(
     data_scope: List[str],
     sql_query: str,
     session_id: _uuid.UUID,
+    clarifications: Dict[str, str] | None = None,
 ) -> AsyncGenerator[str, None]:
     """
     Run the LangGraph agent and yield SSE frames.
@@ -216,6 +296,7 @@ async def _run_agent_streaming(
         "context_payload": {
             "data_scope": data_scope,
             "sql_query": sql_query,
+            "clarifications": clarifications or {},
         },
     }
 
@@ -275,6 +356,17 @@ async def _run_agent_streaming(
         yield _sse("done", {})
         return
 
+    # Clarification short-circuit — emit a structured clarification event
+    if output.get("needs_clarification"):
+        raw_items: list = output.get("clarification_items") or []
+        yield _sse("clarification", {
+            "session_id": str(session_id),
+            "needs_clarification": True,
+            "clarification_items": raw_items,
+        })
+        yield _sse("done", {})
+        return
+
     raw_citations = output.get("citations") or []
     citations = [
         {
@@ -293,6 +385,16 @@ async def _run_agent_streaming(
         if c.get("source_type") == "db"
     ]
 
+    raw_trace = output.get("reasoning_trace") or {}
+    reasoning_trace_payload: dict | None = None
+    if raw_trace:
+        reasoning_trace_payload = {
+            "retrieval_method": raw_trace.get("retrieval_method", ""),
+            "retrieved_context": raw_trace.get("retrieved_context") or [],
+            "raw_analysis": raw_trace.get("raw_analysis", ""),
+            "suppressed_claims": raw_trace.get("suppressed_claims") or [],
+        }
+
     yield _sse("result", {
         "session_id": str(session_id),
         "answer": output.get("narrative", output.get("grounded_narrative", "")),
@@ -300,6 +402,7 @@ async def _run_agent_streaming(
         "sql_queries_executed": sql_executed,
         "confidence_score": round(float(output.get("confidence_score", 0.0)), 4),
         "follow_up_suggestions": output.get("follow_up_suggestions", []),
+        "reasoning_trace": reasoning_trace_payload,
     })
     yield _sse("done", {})
 
@@ -310,6 +413,7 @@ async def analyst_query_stream(
     data_scope: str = Query(default="", description="Comma-separated table names to scope SQL tool"),
     sql_query: str = Query(default="", description="Optional pre-validated SELECT query"),
     session_id: Optional[str] = Query(default=None, description="Resume an existing session"),
+    clarifications: Optional[str] = Query(default=None, description="JSON-encoded clarification answers, e.g. {\"product_type\":\"All combined\"}"),
 ) -> StreamingResponse:
     """
     Stream the LangGraph agent response as Server-Sent Events.
@@ -317,14 +421,21 @@ async def analyst_query_stream(
     Connect with ``EventSource('/v1/query/stream?query=...')`` from the browser.
     Each agent node completion emits a ``status`` event.
     The final answer emits a ``result`` event followed by ``done``.
+    When clarification is needed, emits a ``clarification`` event instead.
     """
     _session_id = _uuid.UUID(session_id) if session_id else _uuid.uuid4()
     scope_list = [s.strip() for s in data_scope.split(",") if s.strip()] if data_scope else []
+    clarification_dict: dict | None = None
+    if clarifications:
+        try:
+            clarification_dict = json.loads(clarifications)
+        except Exception:
+            pass
 
     log.info("query_stream_start", session_id=str(_session_id), query_len=len(query))
 
     return StreamingResponse(
-        _run_agent_streaming(query, scope_list, sql_query, _session_id),
+        _run_agent_streaming(query, scope_list, sql_query, _session_id, clarification_dict),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

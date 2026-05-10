@@ -24,9 +24,11 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NarrativeCard } from "@/components/NarrativeCard";
+import { ReasoningTraceCard } from "@/components/ReasoningTraceCard";
 import {
   streamAnalystQuery,
   type AnalystQueryResponse,
+  type ClarificationItem,
   type StreamStep,
   type StreamStatusEvent,
 } from "@/lib/copilot-client";
@@ -66,11 +68,28 @@ export default function QueryPage() {
   const [result, setResult] = React.useState<AnalystQueryResponse | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [history, setHistory] = React.useState<string[]>([]);
+  // Persist the session_id across turns so the backend can recall conversation history
+  const [sessionId, setSessionId] = React.useState<string | null>(null);
+
+  // Clarification state
+  const [clarificationItems, setClarificationItems] = React.useState<ClarificationItem[]>([]);
+  const [clarificationAnswers, setClarificationAnswers] = React.useState<Record<string, string>>({});
+  const pendingQueryRef = React.useRef<string>("");
 
   const abortRef = React.useRef<(() => void) | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
-  function handleSubmit(q?: string) {
+  function handleNewConversation() {
+    setSessionId(null);
+    setResult(null);
+    setError(null);
+    setSteps({});
+    setClarificationItems([]);
+    setClarificationAnswers({});
+    setQuery("");
+  }
+
+  function handleSubmit(q?: string, clarifications?: Record<string, string>) {
     const activeQuery = q ?? query;
     if (!activeQuery.trim() || loading) return;
 
@@ -81,15 +100,25 @@ export default function QueryPage() {
     setResult(null);
     setError(null);
     setSteps({});
-    setHistory((h) => [activeQuery, ...h.slice(0, 9)]);
+    setClarificationItems([]);
+    setClarificationAnswers({});
+    if (!clarifications) {
+      setHistory((h) => [activeQuery, ...h.slice(0, 9)]);
+    }
 
     abortRef.current = streamAnalystQuery(
-      { query: activeQuery, data_scope: dataScope ? dataScope.split(",").map((s) => s.trim()) : [] },
+      {
+        query: activeQuery,
+        data_scope: dataScope ? dataScope.split(",").map((s) => s.trim()) : [],
+        // Reuse the session_id from the previous turn so the backend can load
+        // conversation history via the LangGraph checkpointer.
+        session_id: sessionId ?? undefined,
+        clarifications: clarifications ?? undefined,
+      },
       {
         onStatus: (event) => {
           setSteps((prev) => {
             const updated = { ...prev };
-            // Mark all previous steps as done
             let found = false;
             for (const { step } of PIPELINE_STEPS) {
               if (step === event.step) {
@@ -106,7 +135,9 @@ export default function QueryPage() {
         },
         onResult: (res) => {
           setResult(res);
-          // Mark all steps done
+          // Capture session_id so subsequent questions in this conversation
+          // are linked to the same graph checkpoint (enabling history recall).
+          if (res.session_id) setSessionId(res.session_id);
           setSteps((prev) => {
             const updated = { ...prev };
             for (const { step } of PIPELINE_STEPS) {
@@ -114,6 +145,14 @@ export default function QueryPage() {
             }
             return updated;
           });
+        },
+        onClarification: (event) => {
+          pendingQueryRef.current = activeQuery;
+          setClarificationItems(event.clarification_items);
+          setClarificationAnswers(
+            Object.fromEntries(event.clarification_items.map((it) => [it.id, ""]))
+          );
+          setLoading(false);
         },
         onError: (err) => {
           setError(`${err.error}: ${err.message}`);
@@ -124,6 +163,13 @@ export default function QueryPage() {
         },
       }
     );
+  }
+
+  function handleClarificationSubmit() {
+    // Validate all items have an answer
+    const allAnswered = clarificationItems.every((it) => clarificationAnswers[it.id]?.trim());
+    if (!allAnswered) return;
+    handleSubmit(pendingQueryRef.current, clarificationAnswers);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -146,9 +192,19 @@ export default function QueryPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-4 py-8">
       {/* Page title */}
-      <div className="flex items-center gap-2">
-        <Terminal className="h-5 w-5 text-brand-400" />
-        <h1 className="text-2xl font-bold text-slate-100">Analyst Query Console</h1>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Terminal className="h-5 w-5 text-brand-400" />
+          <h1 className="text-2xl font-bold text-slate-100">Analyst Query Console</h1>
+        </div>
+        {sessionId && (
+          <button
+            onClick={handleNewConversation}
+            className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs text-slate-300 transition hover:border-brand-500 hover:text-brand-300"
+          >
+            New Conversation
+          </button>
+        )}
       </div>
       <p className="text-sm text-slate-400">
         Ask anything about credit decisions, portfolio metrics, or regulatory guidance.
@@ -185,8 +241,7 @@ export default function QueryPage() {
             <span className="text-xs text-slate-500">⌘+Enter to send</span>
             <button
               onClick={() => handleSubmit()}
-              disabled={loading || !query.trim()}
-              className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={loading || !query.trim()}              className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? (
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
@@ -248,6 +303,57 @@ export default function QueryPage() {
         </div>
       )}
 
+      {/* Clarification panel */}
+      {clarificationItems.length > 0 && (
+        <div className="rounded-xl border border-amber-700/60 bg-amber-950/30 px-5 py-4 space-y-4">
+          <p className="text-sm font-medium text-amber-300">
+            A bit more context is needed to answer accurately:
+          </p>
+          {clarificationItems.map((item) => (
+            <div key={item.id} className="space-y-2">
+              <label className="block text-sm text-slate-200">{item.question}</label>
+              {item.options.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {item.options.map((opt) => (
+                    <button
+                      key={opt}
+                      onClick={() =>
+                        setClarificationAnswers((prev) => ({ ...prev, [item.id]: opt }))
+                      }
+                      className={cn(
+                        "rounded-full border px-3 py-1.5 text-xs transition",
+                        clarificationAnswers[item.id] === opt
+                          ? "border-brand-500 bg-brand-950/60 text-brand-200"
+                          : "border-slate-600 bg-slate-800 text-slate-300 hover:border-brand-500"
+                      )}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <input
+                  type="text"
+                  value={clarificationAnswers[item.id] ?? ""}
+                  onChange={(e) =>
+                    setClarificationAnswers((prev) => ({ ...prev, [item.id]: e.target.value }))
+                  }
+                  className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                />
+              )}
+            </div>
+          ))}
+          <button
+            onClick={handleClarificationSubmit}
+            disabled={!clarificationItems.every((it) => clarificationAnswers[it.id]?.trim())}
+            className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Send className="h-4 w-4" />
+            Submit Answer
+          </button>
+        </div>
+      )}
+
       {/* Error */}
       {error && (
         <div className="flex items-start gap-2 rounded-lg border border-red-800/60 bg-red-950/30 px-4 py-3">
@@ -265,6 +371,11 @@ export default function QueryPage() {
             confidenceScore={result.confidence_score}
             audience="analyst"
           />
+
+          {/* Reasoning trace — how the AI got here */}
+          {result.reasoning_trace && (
+            <ReasoningTraceCard trace={result.reasoning_trace} />
+          )}
 
           {/* SQL queries */}
           {result.sql_queries_executed.length > 0 && (

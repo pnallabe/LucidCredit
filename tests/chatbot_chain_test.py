@@ -599,6 +599,9 @@ class TestResult:
                 "no data available", "insufficient data",
                 "this metric", "this field", "this data",
                 "not supported by", "not captured",
+                # Broader negation patterns — LLM may say "does not include/contain" without "dataset"
+                "does not include", "does not contain", "context does not",
+                "cannot be provided", "cannot provide",
             ]
             found_refusal = any(p in text_lower for p in refusal_phrases)
             if not found_refusal:
@@ -608,8 +611,12 @@ class TestResult:
             confident_fabrication_phrases = ["the prepayment rate is", "ltv ratio is", "industry average is",
                                              "benchmark is", "nationally the"]
             for phrase in confident_fabrication_phrases:
-                if phrase in text_lower:
-                    issues.append(f"Possible hallucination: found '{phrase}' for a field/topic not in dataset")
+                idx = text_lower.find(phrase)
+                if idx != -1:
+                    # Skip if the phrase is immediately negated (e.g. "the prepayment rate is not available")
+                    following = text_lower[idx + len(phrase):idx + len(phrase) + 15].strip()
+                    if not (following.startswith("not") or following.startswith("cannot") or following.startswith("unavailable")):
+                        issues.append(f"Possible hallucination: found '{phrase}' for a field/topic not in dataset")
 
         # Expected keyword check (soft — warn, not fail)
         missing_kws = [kw for kw in self.test.expected_keywords if kw.lower() not in text_lower]

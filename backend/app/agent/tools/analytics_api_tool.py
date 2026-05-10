@@ -152,10 +152,65 @@ _PORTFOLIO_WIDE_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
+# Explicit product type mentions — when any of these appear, the user intends
+# a specific product, so do NOT auto-fallback to "All combined".
+_EXPLICIT_PRODUCT_PATTERNS = re.compile(
+    r"\b(personal loans?|auto loans?|mortgage|mortgages|credit cards?|"
+    r"home equity|heloc|student loans?|business loans?|commercial loans?|"
+    r"installment loans?|revolving credit|line of credit)\b",
+    re.IGNORECASE,
+)
+
+# Maps explicit product keywords in the question → normalized product_type value
+# expected by the analytics API (order matters — first match wins).
+_EXPLICIT_PRODUCT_MAP: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\bmortgages?\b", re.I), "Mortgage"),
+    (re.compile(r"\bpersonal loans?\b", re.I), "Personal loans"),
+    (re.compile(r"\bauto loans?\b", re.I), "Auto loans"),
+    (re.compile(r"\bcredit cards?\b", re.I), "Credit cards"),
+    (re.compile(r"\bhome equity\b|\bheloc\b", re.I), "Home equity"),
+    (re.compile(r"\bstudent loans?\b", re.I), "Student loans"),
+    (re.compile(r"\bbusiness loans?\b", re.I), "Business loans"),
+    (re.compile(r"\bcommercial loans?\b", re.I), "Commercial loans"),
+    (re.compile(r"\binstallment loans?\b", re.I), "Installment loans"),
+    (re.compile(r"\brevolving credit\b|\bline of credit\b", re.I), "Line of credit"),
+]
+
+
+def _extract_explicit_product_type(question: str) -> str | None:
+    """
+    If the question names a specific product type, return the normalized
+    product_type value expected by the analytics API.  Returns None when
+    no specific product is named.
+    """
+    for pattern, product_type in _EXPLICIT_PRODUCT_MAP:
+        if pattern.search(question):
+            return product_type
+    return None
+
 
 def _is_portfolio_wide(question: str) -> bool:
     """Return True when the question clearly intends a cross-product aggregate."""
     return bool(_PORTFOLIO_WIDE_PATTERNS.search(question))
+
+
+def _should_auto_all_combined(question: str) -> bool:
+    """
+    Return True when product_type should be defaulted to "All combined" automatically.
+
+    Triggers when:
+      • The question explicitly uses portfolio-wide language (original behavior), OR
+      • The question does NOT name a specific product type — meaning the user
+        is asking a generic aggregate question (e.g. "how many applications in 2021?")
+        and "All combined" is the most sensible default.
+    """
+    if _is_portfolio_wide(question):
+        return True
+    # If an explicit product is mentioned, respect it and ask the user
+    if _EXPLICIT_PRODUCT_PATTERNS.search(question):
+        return False
+    # No product named → default to all combined
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -271,11 +326,42 @@ def _no_matching_field_chunk(question: str, reason: str) -> RetrievedChunk:
 # Core async request helper
 # ---------------------------------------------------------------------------
 
+# Sentinel to distinguish a connection failure from a valid "no data" response.
+_CONNECTION_FAILED = object()
+
+
+def _service_unavailable_chunk(question: str) -> RetrievedChunk:
+    """Chunk returned when the analytics API cannot be reached at all."""
+    return RetrievedChunk(
+        chunk_id="analytics_service_unavailable",
+        source_type="domain_knowledge",
+        source_ref="analytics:service_unavailable",
+        content=(
+            f"[Analytics Service Unavailable]\n"
+            f"Question: {question}\n"
+            "The live portfolio analytics service is currently unreachable. "
+            "I am unable to retrieve real-time BigQuery data at this moment. "
+            "Please inform the user that the analytics data service is temporarily "
+            "unavailable and suggest they try again in a few minutes. "
+            "Do NOT fabricate any portfolio figures, percentages, or counts."
+        ),
+        relevance="RELEVANT",
+        similarity_score=0.9,
+    )
+
+
 async def _call_analytics_api(
     url: str,
     payload: dict[str, Any],
-) -> dict[str, Any] | None:
-    """Execute a single POST to the analytics API. Returns parsed JSON or None on error."""
+) -> dict[str, Any] | None | object:
+    """
+    Execute a single POST to the analytics API.
+
+    Returns:
+        dict       — parsed JSON response on success
+        None       — HTTP error (service up, but returned error status)
+        _CONNECTION_FAILED sentinel — network/connection error (service unreachable)
+    """
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(url, json=payload, headers=_make_headers())
@@ -288,9 +374,12 @@ async def _call_analytics_api(
             exc.response.text[:300],
         )
         return None
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.RemoteProtocolError) as exc:
+        log.warning("analytics_api_tool: connection failed — %s", exc)
+        return _CONNECTION_FAILED
     except Exception as exc:
         log.warning("analytics_api_tool: request failed — %s", exc)
-        return None
+        return _CONNECTION_FAILED
 
 
 async def ask_analytics(
@@ -336,6 +425,9 @@ async def ask_analytics(
     data = await _call_analytics_api(url, payload)
     if data is None:
         return []
+    if data is _CONNECTION_FAILED:
+        log.warning("analytics_api_tool: analytics service unreachable for question=%r", question[:80])
+        return [_service_unavailable_chunk(question)]
 
     # --- Clarification needed ---
     if data.get("needs_clarification"):
@@ -347,26 +439,43 @@ async def ask_analytics(
                 "options": data.get("clarification_options") or [],
             }]
 
-        # Auto product_type fallback: if the only clarification is product_type
-        # AND the question is clearly portfolio-wide, retry with "All combined"
-        # so the user doesn't need a second turn.
+        # Auto product_type fallback: if the only clarification is product_type,
+        # infer the value from the question rather than asking the user:
+        #   • explicit product named (e.g. "mortgage") → use that product type
+        #   • portfolio-wide language or no product named → use "All combined"
         pending_ids = [it.get("id") for it in items]
         if (
             pending_ids == ["product_type"]
-            and _is_portfolio_wide(question)
             and not (clarifications or {}).get("product_type")
         ):
-            log.info(
-                "analytics_api_tool: auto product_type=All combined for portfolio-wide question"
-            )
+            explicit_product = _extract_explicit_product_type(question)
+            if explicit_product:
+                auto_product: str | None = explicit_product
+                log.info(
+                    "analytics_api_tool: auto product_type=%r (extracted from question)",
+                    explicit_product,
+                )
+            elif _should_auto_all_combined(question):
+                auto_product = "All combined"
+                log.info(
+                    "analytics_api_tool: auto product_type=All combined (no explicit product in question)"
+                )
+            else:
+                auto_product = None
+        else:
+            auto_product = None
+
+        if auto_product is not None and pending_ids == ["product_type"] and not (clarifications or {}).get("product_type"):
             retry_clarifications = dict(clarifications or {})
-            retry_clarifications["product_type"] = "All combined"
+            retry_clarifications["product_type"] = auto_product
             retry_payload: dict[str, Any] = {"question": question}
             if hint:
                 retry_payload["hint"] = hint
             retry_payload["clarifications"] = retry_clarifications
 
             retry_data = await _call_analytics_api(url, retry_payload)
+            if retry_data is _CONNECTION_FAILED:
+                return [_service_unavailable_chunk(question)]
             if retry_data and not retry_data.get("needs_clarification"):
                 data = retry_data
                 # Fall through to normal row processing below

@@ -85,11 +85,32 @@ export async function explainDecision(
 // Analyst Query (non-streaming)
 // ---------------------------------------------------------------------------
 
+export interface ClarificationItem {
+  id: string;
+  question: string;
+  options: string[];
+}
+
+export interface ReasoningContextItem {
+  source_type: string;
+  source_ref: string;
+  relevance: string;
+  snippet: string;
+}
+
+export interface ReasoningTrace {
+  retrieval_method: string;
+  retrieved_context: ReasoningContextItem[];
+  raw_analysis: string;
+  suppressed_claims: Array<{ claim_text?: string; sentence?: string; [key: string]: unknown }>;
+}
+
 export interface AnalystQueryRequest {
   query: string;
   data_scope?: string[];
   session_id?: string | null;
   sql_query?: string | null;
+  clarifications?: Record<string, string> | null;
 }
 
 export interface AnalystQueryResponse {
@@ -99,6 +120,9 @@ export interface AnalystQueryResponse {
   sql_queries_executed: string[];
   confidence_score: number;
   follow_up_suggestions: string[];
+  needs_clarification?: boolean;
+  clarification_items?: ClarificationItem[];
+  reasoning_trace?: ReasoningTrace | null;
 }
 
 export async function analystQuery(
@@ -145,9 +169,16 @@ export interface StreamStatusEvent {
 
 export interface StreamResultEvent extends AnalystQueryResponse {}
 
+export interface StreamClarificationEvent {
+  session_id: string;
+  needs_clarification: true;
+  clarification_items: ClarificationItem[];
+}
+
 export interface StreamCallbacks {
   onStatus?: (event: StreamStatusEvent) => void;
   onResult?: (result: StreamResultEvent) => void;
+  onClarification?: (event: StreamClarificationEvent) => void;
   onError?: (error: ApiError) => void;
   onDone?: () => void;
 }
@@ -172,6 +203,9 @@ export function streamAnalystQuery(
   if (req.data_scope?.length) params.set("data_scope", req.data_scope.join(","));
   if (req.sql_query) params.set("sql_query", req.sql_query);
   if (req.session_id) params.set("session_id", req.session_id);
+  if (req.clarifications && Object.keys(req.clarifications).length > 0) {
+    params.set("clarifications", JSON.stringify(req.clarifications));
+  }
 
   const url = `${API_BASE}/v1/query/stream?${params.toString()}`;
   const es = new EventSource(url);
@@ -187,6 +221,13 @@ export function streamAnalystQuery(
     try {
       const data: StreamResultEvent = JSON.parse(e.data);
       callbacks.onResult?.(data);
+    } catch {}
+  });
+
+  es.addEventListener("clarification", (e: MessageEvent) => {
+    try {
+      const data: StreamClarificationEvent = JSON.parse(e.data);
+      callbacks.onClarification?.(data);
     } catch {}
   });
 

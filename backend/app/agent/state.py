@@ -22,6 +22,12 @@ class AgentState(TypedDict):
     audience: Literal["analyst", "applicant"]
     context_payload: dict  # raw API inputs (decision_id, application_id, etc.)
 
+    # Multi-turn conversation history — list of {"role": "user"|"assistant", "content": str}
+    # Populated by format_output_node after each successful turn.
+    # Persisted via the LangGraph checkpointer (Redis) so follow-up questions
+    # can reference prior answers without the client re-sending history.
+    conversation_history: list[dict]
+
     # Context ingestion — clarification round-trip
     # clarification_items: list of {id, question, options} pending user answer
     # clarifications:      answers from the user, keyed by item id

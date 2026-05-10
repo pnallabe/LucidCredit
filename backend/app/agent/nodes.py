@@ -73,6 +73,114 @@ _BROAD_QUERY_DECOMPOSITIONS: list[tuple[re.Pattern[str], list[str]]] = [
             "What is the total exposure at risk?",
         ],
     ),
+    # Full BigQuery integration / run all data analysis
+    (
+        re.compile(
+            r"\b(run\s+(bigquery|bq|all|full|complete|comprehensive)\s*(integration|analysis|analytics|"
+            r"data\s+analysis|types?|checks?|metrics?|diagnostics?)?|"
+            r"all\s+types?\s+of\s+(data\s+)?analysis|"
+            r"comprehensive\s+(data\s+)?analysis|"
+            r"full\s+(data\s+)?analysis|"
+            r"run\s+all\s+(the\s+)?(analyses|analytics|queries|checks|metrics)|"
+            r"analyze\s+(all|the\s+entire)\s+(databases?|data|portfolio)|"
+            r"end.to.end\s+(data\s+)?analysis|"
+            r"complete\s+portfolio\s+analysis)\b",
+            re.IGNORECASE,
+        ),
+        [
+            # --- Delinquency & credit quality ---
+            "What is the current delinquency rate (30+, 60+, 90+ DPD) across the portfolio?",
+            "Show the monthly delinquency trend over all available history by product type.",
+            # --- Charge-offs & loss ---
+            "What is the charge-off rate and net charge-off rate by product type?",
+            "Show the charge-off rate trend by quarter across all available history.",
+            # --- Portfolio balance & exposure ---
+            "What is the total outstanding loan balance by product type?",
+            "Plot loan exposure for the portfolio over time by month.",
+            # --- Origination volume & approvals ---
+            "How many loan applications were submitted each month? Show by product type.",
+            "What is the approval rate by FICO tier across all product types?",
+            # --- Credit quality at origination ---
+            "What is the average FICO score at origination by product type?",
+            "What is the average debt-to-income ratio at origination by product type?",
+            # --- Profitability & yield ---
+            "What is the weighted average APR across the portfolio by product type?",
+            "What is the net interest income trend by month for all loan products?",
+            # --- Roll rate / delinquency bucket migration ---
+            "Show the roll rate matrix: percentage of accounts transitioning from 30 DPD to 60 DPD and 90 DPD.",
+            # --- Vintage performance ---
+            "Show the cumulative default rate by origination vintage (cohort) for personal loans.",
+            # --- Geographic distribution ---
+            "Show total outstanding balance and loan count by state across all products.",
+            # --- Payment behaviour ---
+            "What is the prepayment rate by product type over all available history?",
+            # --- Concentration & product mix ---
+            "What is the loan count and outstanding balance distribution by product type?",
+        ],
+    ),
+    # End-to-end BigQuery integration audit — exercises the full NL→SQL→BQ→NL chain
+    # across increasing complexity: simple aggregate → time-series with INT64 timestamps
+    # → cross-table join → complex metric derivation → geographic segmentation.
+    (
+        re.compile(
+            r"\b(audit\s+(the\s+)?(bigquery|bq|analytics?|integration|pipeline|"
+            r"full\s+pipeline|analytics?\s+chain|end.to.end\s+chain)|"
+            r"(run|test|verify|validate)\s+(the\s+)?(end.to.end|e2e|full)\s+"
+            r"(chain|pipeline|flow|integration)\s*(of\s+(analysis|analytics|queries?))?|"
+            r"end.to.end\s+chain\s+of\s+analysis|"
+            r"test\s+(the\s+)?(nl.to.sql|nl2sql|bigquery|bq)\s+(pipeline|chain|integration|flow)|"
+            r"(trace|walk\s+through|walkthrough)\s+(the\s+)?(full\s+)?(analytics?|query)\s+(pipeline|chain|flow)|"
+            r"audit\s+(the\s+)?(analytics?|data)\s+(pipeline|chain|flow|integration))\b",
+            re.IGNORECASE,
+        ),
+        [
+            # ── Stage 1: Simple single-table aggregate (validates basic NL→SQL) ──
+            "What is the total outstanding loan balance across all funded personal loans?",
+
+            # ── Stage 2: INT64 nanosecond timestamp handling (validates date casting) ──
+            "Show the monthly delinquency rate (30+ DPD) trend from org_balance_sheet "
+            "over all available history, ordered from most recent to oldest.",
+
+            # ── Stage 3: Separate income-statement table (validates table routing) ──
+            "Show the charge-off rate and net charge-off rate by quarter from "
+            "org_income_statement across all available history.",
+
+            # ── Stage 4: Cross-table metric (applications table, FICO grouping) ──
+            "What is the approval rate by FICO tier for personal loan applications?",
+
+            # ── Stage 5: Weighted aggregate across two columns (formula derivation) ──
+            "What is the weighted average APR of all funded personal loans, "
+            "weighted by current outstanding balance?",
+
+            # ── Stage 6: Date-column origination (native DATE column, not INT64) ──
+            "How many personal loans were originated per month in 2023 and 2024? "
+            "Group by origination_date month.",
+
+            # ── Stage 7: Multi-dimensional grouping (product × channel) ──
+            "Show loan count and total funded amount by product type and origination "
+            "channel across all available data.",
+
+            # ── Stage 8: Geographic segmentation (state-level rollup) ──
+            "Show the total outstanding balance and number of active loans by state "
+            "for personal loans.",
+
+            # ── Stage 9: Roll-rate / DPD bucket migration (payment behaviour) ──
+            "Show the monthly payment count and prepayment rate for personal loans "
+            "by month over all available history.",
+
+            # ── Stage 10: Complex CAGR derivation (first vs. last period) ──
+            "What is the compound annual growth rate (CAGR) of the total outstanding "
+            "portfolio balance from the earliest to the most recent reporting period?",
+
+            # ── Stage 11: Net interest income from monthly ledger table ──
+            "Show the total net interest income per month from the loan monthly ledger "
+            "for all product types.",
+
+            # ── Stage 12: Vintage / cohort cumulative default (join origination + performance) ──
+            "Show the cumulative default rate by origination vintage year for "
+            "personal loans, ordered from oldest to most recent cohort.",
+        ],
+    ),
     # Top N analysis
     (
         re.compile(
@@ -183,6 +291,17 @@ _REASONING_BYPASS_SUPPRESS: list[re.Pattern[str]] = [
     re.compile(r"\bwhat\s+(?:is|are|was|were)\s+the\s+(?:rate|number|count|total|average|median|distribution)\b", re.IGNORECASE),
     re.compile(r"\bhow\s+many\b", re.IGNORECASE),
     re.compile(r"\bwhat\s+(?:percentage|pct|%)\b", re.IGNORECASE),
+    # Data-exploration questions that contain "explain the [data/underlying/results]"
+    # These look like reasoning questions but are really asking about actual dataset content.
+    re.compile(r"\bexplain\s+the\s+(?:underlying|current|available|existing|portfolio|actual|raw)?\s*data\b", re.IGNORECASE),
+    re.compile(r"\bexplain\s+the\s+(?:numbers?|results?|figures?|values?)\b", re.IGNORECASE),
+    # Portfolio / dataset metadata questions
+    re.compile(r"\bportfolio\s+size\b", re.IGNORECASE),
+    re.compile(r"\bproduct\s+(?:lines?|types?)\b", re.IGNORECASE),
+    re.compile(r"\bhistorical\s+dataset\b", re.IGNORECASE),
+    re.compile(r"\bdataset\s+size\b", re.IGNORECASE),
+    re.compile(r"\bdate\s+range\b", re.IGNORECASE),
+    re.compile(r"\bwhat\s+(?:data|tables?|products?|fields?|columns?)\s+(?:are|is|do\s+we)\b", re.IGNORECASE),
 ]
 
 
@@ -839,15 +958,17 @@ async def reason_node(state: AgentState) -> dict:
     intent: str = state.get("intent", "analyst_query")
     session_type = _session_type_for(audience, intent)
 
-    # Render the system prompt from graded context + context_payload
+    # Render the system prompt from graded context + context_payload + conversation history
     from app.agent.prompt_renderer import render_prompt as _render_prompt
     graded_chunks = state.get("graded_chunks", [])
     context_payload: dict = state.get("context_payload", {})
+    conversation_history: list[dict] = state.get("conversation_history") or []
     prompt: str = _render_prompt(
         session_type,
         state.get("query", ""),
         graded_chunks,
         context_payload,
+        conversation_history,
     )
 
     # --- Dev stub: skip all LLM calls (useful before deployments are provisioned) ---
@@ -1159,7 +1280,7 @@ async def grade_documents_node(state: AgentState) -> dict:
 
     # "no data", "no matching field", and "domain knowledge" chunks short-circuit
     # LLM grading — they are always RELEVANT so reason_node can respond gracefully.
-    bypass_chunk_ids = {"analytics_bq_no_data", "analytics_no_matching_field", "domain_knowledge_reasoning", "domain_knowledge_adversarial"}
+    bypass_chunk_ids = {"analytics_bq_no_data", "analytics_no_matching_field", "domain_knowledge_reasoning", "domain_knowledge_adversarial", "analytics_service_unavailable"}
     if any(c.get("chunk_id") in bypass_chunk_ids for c in chunks):
         graded = [{**c, "relevance": "RELEVANT"} for c in chunks]
         return {"graded_chunks": graded, "retrieval_sufficient": True}
@@ -1485,6 +1606,41 @@ async def format_output_node(state: AgentState) -> dict:
         }
     else:
         # Analyst / briefing output — full technical payload
+
+        # Build reasoning trace — shows analyst how the conclusion was reached.
+        graded_chunks: list[dict] = state.get("graded_chunks", [])
+        relevant_chunks = [c for c in graded_chunks if c.get("relevance") in ("RELEVANT", "AMBIGUOUS")]
+        # For retrieval_method detection, also check ALL non-clarification chunks
+        # so clarification responses still show what was attempted.
+        all_data_chunks = [c for c in graded_chunks if c.get("source_type") != "clarification"]
+        chunk_ids = {c.get("chunk_id", "") for c in relevant_chunks} | {c.get("chunk_id", "") for c in all_data_chunks}
+        source_types = {c.get("source_type", "") for c in relevant_chunks} | {c.get("source_type", "") for c in all_data_chunks}
+        if chunk_ids & {"domain_knowledge_reasoning", "domain_knowledge_adversarial"}:
+            retrieval_method = "domain_knowledge"
+        elif "db" in source_types:
+            retrieval_method = "bigquery_query"
+        elif "api" in source_types:
+            retrieval_method = "portfolio_api"
+        elif relevant_chunks or all_data_chunks:
+            retrieval_method = "vector_search"
+        else:
+            retrieval_method = "attempted_clarification"
+
+        reasoning_trace = {
+            "retrieval_method": retrieval_method,
+            "retrieved_context": [
+                {
+                    "source_type": c.get("source_type", ""),
+                    "source_ref": c.get("source_ref", ""),
+                    "relevance": c.get("relevance", ""),
+                    "snippet": c.get("content", "")[:400],
+                }
+                for c in (relevant_chunks or all_data_chunks)[:8]  # cap at 8 to keep payload size reasonable
+            ],
+            "raw_analysis": state.get("raw_llm_output", ""),
+            "suppressed_claims": state.get("suppressed_claims", []),
+        }
+
         final_output = {
             "session_id": session_id,
             "narrative": narrative,
@@ -1497,6 +1653,7 @@ async def format_output_node(state: AgentState) -> dict:
             "audience": audience,
             "provider_used": state.get("provider_used", ""),
             "intent": state.get("intent", ""),
+            "reasoning_trace": reasoning_trace,
         }
 
     # Attach clarification_items so gateway can surface structured follow-up UI
@@ -1504,7 +1661,17 @@ async def format_output_node(state: AgentState) -> dict:
         final_output["clarification_items"] = clarification_items
         final_output["needs_clarification"] = True
 
-    return {"final_output": final_output}
+    # Build updated conversation history (only for successful non-clarification turns)
+    # Cap at 20 messages (10 Q&A pairs) to avoid exceeding token budgets.
+    updated_history: list[dict] = []
+    if narrative and not clarification_items:
+        prior_history: list[dict] = state.get("conversation_history") or []
+        updated_history = list(prior_history)
+        updated_history.append({"role": "user", "content": state.get("query", "")})
+        updated_history.append({"role": "assistant", "content": narrative[:2000]})
+        updated_history = updated_history[-20:]  # keep last 10 Q&A pairs
+
+    return {"final_output": final_output, "conversation_history": updated_history}
 
 
 # ---------------------------------------------------------------------------

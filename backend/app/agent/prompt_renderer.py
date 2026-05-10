@@ -52,6 +52,28 @@ def _grading_system() -> str:
 # Context formatter
 # ---------------------------------------------------------------------------
 
+def _format_conversation_history(history: list[dict]) -> str:
+    """
+    Format prior conversation turns as a numbered exchange block.
+
+    Only the last 6 turns (3 Q&A pairs) are included to stay within token budgets.
+    Older turns are summarised as "(earlier conversation omitted)".
+    """
+    if not history:
+        return ""
+    # Keep last 6 messages (3 full Q&A rounds)
+    recent = history[-6:]
+    omitted = len(history) - len(recent)
+    lines: list[str] = []
+    if omitted > 0:
+        lines.append(f"(... {omitted} earlier message(s) omitted ...)\n")
+    for msg in recent:
+        role = msg.get("role", "user").capitalize()
+        content = str(msg.get("content", ""))[:800]
+        lines.append(f"**{role}**: {content}")
+    return "\n\n".join(lines)
+
+
 def _format_context(graded_chunks: List[RetrievedChunk]) -> str:
     """
     Format graded chunks into a numbered context block.
@@ -84,6 +106,7 @@ def _render_analyst(
     query: str,
     graded_chunks: List[RetrievedChunk],
     context_payload: dict,
+    conversation_history: list[dict] | None = None,
 ) -> str:
     context_block = _format_context(graded_chunks)
     decision_id = context_payload.get("decision_id", "")
@@ -91,9 +114,16 @@ def _render_analyst(
     application_id = context_payload.get("application_id", "")
     app_line = f"\n**Application ID**: `{application_id}`" if application_id else ""
 
+    history_block = _format_conversation_history(conversation_history or [])
+    history_section = (
+        f"## Conversation History\n\n{history_block}\n\n---\n\n"
+        if history_block else ""
+    )
+
     return (
         f"{_analyst_system()}\n\n"
         "---\n\n"
+        f"{history_section}"
         "## Retrieved Context\n\n"
         f"{context_block}\n\n"
         "---\n\n"
@@ -159,18 +189,22 @@ def render_prompt(
     query: str,
     graded_chunks: List[RetrievedChunk],
     context_payload: dict,
+    conversation_history: list[dict] | None = None,
 ) -> str:
     """
     Render the full LLM prompt for *session_type*.
 
     Args:
-        session_type:    "analyst", "applicant", or "briefing"
-        query:           The user's natural language query.
-        graded_chunks:   Chunks from ``grade_documents_node`` (may include
-                         RELEVANT, AMBIGUOUS, and IRRELEVANT entries;
-                         IRRELEVANT are filtered internally).
-        context_payload: Raw API inputs dict from the request
-                         (decision_id, application_id, scope, etc.).
+        session_type:         "analyst", "applicant", or "briefing"
+        query:                The user's natural language query.
+        graded_chunks:        Chunks from ``grade_documents_node`` (may include
+                              RELEVANT, AMBIGUOUS, and IRRELEVANT entries;
+                              IRRELEVANT are filtered internally).
+        context_payload:      Raw API inputs dict from the request
+                              (decision_id, application_id, scope, etc.).
+        conversation_history: Prior Q&A turns as [{"role": ..., "content": ...}].
+                              Included in the analyst prompt so the LLM can
+                              answer follow-up questions with full context.
 
     Returns:
         A fully assembled prompt string ready to send to the LLM.
@@ -179,4 +213,4 @@ def render_prompt(
         return _render_applicant(query, graded_chunks, context_payload)
     if session_type == "briefing":
         return _render_briefing(query, graded_chunks, context_payload)
-    return _render_analyst(query, graded_chunks, context_payload)
+    return _render_analyst(query, graded_chunks, context_payload, conversation_history)
