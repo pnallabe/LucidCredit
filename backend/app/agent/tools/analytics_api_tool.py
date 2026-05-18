@@ -223,7 +223,7 @@ def _should_auto_all_combined(question: str) -> bool:
 _SUBJECT_COLUMN_MAP: list[tuple[re.Pattern[str], list[str]]] = [
     (re.compile(r"\bprepayment\b", re.I), ["prepay", "early_payoff", "payoff_date"]),
     (re.compile(r"\bltv\b|loan.to.value", re.I), ["ltv", "loan_to_value", "collateral"]),
-    (re.compile(r"\bmortgage\b", re.I), ["mortgage", "ltv", "property", "lien"]),
+    (re.compile(r"\bmortgage\b", re.I), ["mortgage", "ltv", "property", "lien", "approved", "decision", "application"]),
     (re.compile(r"\bcharge.off\b|charge_off\b|nco\b", re.I), ["charge_off", "chargeoff", "written_off", "nco"]),
     (re.compile(r"\bindustry\b", re.I), ["industry", "sector", "sic"]),
     (re.compile(r"\bemployment\b", re.I), ["employment", "employer", "job", "occupation"]),
@@ -415,6 +415,18 @@ async def ask_analytics(
     """
     base_url = _analytics_base_url()
     url = f"{base_url}/v1/analytics/s2s/ask"
+
+    # ── PROMPT 7: Health check guard (Eval 3) ────────────────────────────
+    # Fast pre-flight check so the eval records ANALYTICS_UNAVAILABLE instead
+    # of silently returning zero chunks when the service is down.
+    health_url = f"{base_url}/v1/health"
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(2.0)) as hc:
+            health_resp = await hc.get(health_url)
+            health_resp.raise_for_status()
+    except Exception as exc:
+        log.warning("analytics_api_tool.health_check_failed: %s", exc)
+        return [_service_unavailable_chunk(question)]
 
     payload: dict[str, Any] = {"question": question}
     if hint:

@@ -1,0 +1,63 @@
+[
+  {
+    "question": "What is the total outstanding loan balance?",
+    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"],
+    "_note": "Populate relevant_chunk_ids from citations[].source_ref or reasoning_trace.retrieved_context[].source_ref after running the agent once"
+  },
+  {
+    "question": "What is the delinquency rate for personal loans?",
+    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+  },
+  {
+    "question": "What are the adverse action notice requirements under ECOA?",
+    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+  },
+  {
+    "question": "What is the FCRA section 615 disclosure requirement?",
+    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+  },
+  {
+    "question": "What is the charge-off rate by quarter?",
+    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+  },
+  {
+    "question": "What are the SR 11-7 model risk management guidelines?",
+    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+  },
+  {
+    "question": "What is the approval rate by FICO tier?",
+    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+  },
+  {
+    "question": "What are the minimum underwriting standards for personal loans?",
+    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+  },
+  {
+    "question": "What is the average debt-to-income ratio at origination?",
+    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+  },
+  {
+    "question": "What is the 30-day delinquency rate trend over the past 12 months?",
+    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+  },
+  {
+    "question": "What credit policy governs balance transfer products?",
+    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+  },
+  {
+    "question": "What is the total exposure by product type?",
+    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+  },
+  {
+    "question": "What is the weighted average APR across the portfolio?",
+    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+  },
+  {
+    "question": "What compliance disclosures are required for adverse action?",
+    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+  },
+  {
+    "question": "What is the net charge-off rate by loan product?",
+    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+  }
+]

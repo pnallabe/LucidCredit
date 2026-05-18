@@ -1,0 +1,63 @@
+# Expected node trajectories per intent type.
+# Used by eval_trajectory.py to score agent path correctness.
+#
+# Format:
+#   intent_type:
+#     nodes: [list of expected node names in order]
+#     tools: [list of expected source_types in citations/retrieved_context]
+
+analyst_query:
+  nodes:
+    - parse_intent
+    - retrieve
+    - grade_documents
+    - reason
+    - citation_enforcer
+    - confidence_score
+    - format_output
+    - persist_session
+  tools:
+    - api
+    - vector_doc
+
+applicant_comms:
+  nodes:
+    - parse_intent
+    - retrieve
+    - grade_documents
+    - reason
+    - citation_enforcer
+    - confidence_score
+    - compliance_check
+    - format_output
+    - persist_session
+  tools:
+    - vector_doc
+
+portfolio_brief:
+  nodes:
+    - parse_intent
+    - retrieve
+    - grade_documents
+    - reason
+    - citation_enforcer
+    - confidence_score
+    - format_output
+    - persist_session
+  tools:
+    - api
+
+explain_decision:
+  nodes:
+    - parse_intent
+    - retrieve
+    - grade_documents
+    - reason
+    - citation_enforcer
+    - confidence_score
+    - compliance_check
+    - format_output
+    - persist_session
+  tools:
+    - vector_doc
+    - db

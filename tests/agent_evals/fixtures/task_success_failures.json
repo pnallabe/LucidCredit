@@ -1,0 +1,10 @@
+[
+  {
+    "question": "What is the average debt-to-income ratio at origination by product type?",
+    "intent": "analyst_query",
+    "failure_mode": "CLARIFICATION_LOOP",
+    "http_status": 200,
+    "error": "",
+    "confidence_score": 0.0
+  }
+]

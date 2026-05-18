@@ -55,6 +55,10 @@ class AgentState(TypedDict):
     compliance_flags: list[str]
     compliance_passed: bool
 
+    # Fast-path flag — set by parse_intent_node for Tier-1 latency queries
+    # When True, reason_node skips the LLM call and uses the top retrieved chunk directly.
+    fast_path: bool
+
     # Output
     final_output: dict
     error: Optional[str]

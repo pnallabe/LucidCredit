@@ -55,6 +55,14 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+def _route_after_parse_intent(state: AgentState) -> str:
+    """Route to format_output immediately when parse_intent short-circuits an
+    unanswerable query (UNSUPPORTED_QUERY), skipping retrieval and generation."""
+    if state.get("error") == "UNSUPPORTED_QUERY":
+        return "format_output"
+    return "retrieve"
+
+
 def _route_after_grade(state: AgentState) -> str:
     if state.get("error"):
         return "error"
@@ -74,7 +82,7 @@ def _route_after_confidence(state: AgentState) -> str:
         return "error"
     if not state.get("grounding_passed", False):
         return "error"
-    if state.get("audience") == "applicant":
+    if state.get("audience") == "applicant" or state.get("intent") == "applicant_comms":
         return "compliance_check"
     return "format_output"
 
@@ -125,7 +133,14 @@ async def compile_graph():
 
     # Linear edges
     builder.add_edge(START, "parse_intent")
-    builder.add_edge("parse_intent", "retrieve")
+
+    # Conditional: unanswerable short-circuit → format_output, else → retrieve
+    builder.add_conditional_edges(
+        "parse_intent",
+        _route_after_parse_intent,
+        {"retrieve": "retrieve", "format_output": "format_output"},
+    )
+
     builder.add_edge("retrieve", "grade_documents")
 
     # Conditional: retrieval sufficient?

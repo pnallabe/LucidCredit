@@ -47,6 +47,18 @@ You are writing to a **loan applicant** — a consumer, not a financial professi
 Write a consumer-friendly narrative. Do not use section headers visible to the applicant.
 Use short paragraphs (2–3 sentences each). Use plain, conversational English.
 
+## Mandatory FCRA § 615(a) Footer — Decline and Counteroffer Only
+
+Every **decline notice** and **counteroffer letter** MUST end with a consumer rights paragraph that includes ALL of the following elements verbatim or substantially as written:
+
+1. A statement that information from a **consumer reporting agency** (credit bureau) influenced the decision.
+2. The applicant's right to a **free copy** of their consumer report from that agency within **60 days**.
+3. The applicant's right to **dispute the accuracy or completeness** of information in their report directly with the consumer reporting agency.
+4. A reference to **www.consumerfinance.gov/learnmore** or the CFPB at **1-855-411-2372** for more information.
+
+**Failure to include this footer in any decline or counteroffer response is a regulatory violation.**
+Do not omit, abbreviate, or move this block to a footnote. It must appear as the final paragraph of the response.
+
 ---
 
 Begin your response immediately below the dashed line. Do not repeat these instructions.

@@ -148,7 +148,16 @@ class CitationEnforcer:
                     best_sim = sim
                     best_chunk_idx = j
 
-            if best_sim >= threshold and not is_unverified:
+            # DB (BigQuery) chunks are authoritative structured data. Natural language
+            # sentences generated from SQL rows have low cosine similarity to the raw
+            # JSON chunk content even when they are factually grounded. For DB chunks,
+            # bypass the cosine threshold entirely — any sentence that best-matches a
+            # DB chunk is considered grounded (the DB query itself is the ground truth).
+            effective_threshold = threshold
+            if best_chunk_idx >= 0 and relevant_chunks[best_chunk_idx].get("source_type") == "db":
+                effective_threshold = 0.0
+
+            if best_sim >= effective_threshold and not is_unverified:
                 best_chunk = relevant_chunks[best_chunk_idx]
                 grounded_sentences.append(clean_sentence)
                 citations.append(

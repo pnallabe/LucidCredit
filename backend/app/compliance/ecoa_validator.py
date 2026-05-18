@@ -41,29 +41,85 @@ log = structlog.get_logger(__name__)
 # Rule constants
 # ---------------------------------------------------------------------------
 
-# Reg B § 202.2(z) — prohibited basis characteristics.
-# Matching any of these in a generated applicant narrative is a hard violation.
-_PROHIBITED_BASIS_PATTERNS: List[str] = [
-    r"\brace\b",
-    r"\bcolor\b",
-    r"\breligion\b",
-    r"\bnational\s+origin\b",
-    r"\bsex\b",
-    r"\bgender\b",
-    r"\bmarital\s+status\b",
-    r"\bage\b",
-    r"\bpregnancy\b",
-    r"\bpregnant\b",
-    r"\bpublic\s+assistance\b",
-    r"\bwelfare\b",
-    r"\bethnic\b",
-    r"\bethnicity\b",
-    r"\bsexual\s+orientation\b",
-    r"\bdisabilit(?:y|ies)\b",
+# Reg B § 202.2(z) — discriminatory attribution patterns.
+#
+# DESIGN: ECOA prohibits basing credit decisions ON protected characteristics.
+# Standard adverse action notices are legally REQUIRED to include equal-treatment
+# disclaimers that mention protected characteristics (e.g. "We do not discriminate
+# based on race, color, religion...").  Flagging any mention of protected class
+# words would cause every compliant notice to fail.
+#
+# Therefore we flag only DISCRIMINATORY ATTRIBUTION — text that says a credit
+# decision was made because of a protected characteristic.  The critical design
+# principle: the pattern must require a CREDIT OUTCOME VERB (declined, denied,
+# rejected, adverse action taken, etc.) in close proximity to the attribution.
+# This ensures "We do not discriminate based on race" does NOT trigger ECOA-001
+# while "Your application was denied because of your race" does trigger it.
+_DISCRIMINATORY_ATTRIBUTION_PATTERNS: List[re.Pattern] = [
+    # Pattern A: credit outcome verb + attribution connector + characteristic
+    # "declined/denied/rejected because of / due to / based on [characteristic]"
+    # The [^.\n]{0,120} allows words between the verb and connector but
+    # stays within the same sentence (no crossing . or newline).
+    re.compile(
+        r"\b(?:declined?|denied|rejected|refused|disapproved|adverse\s+action"
+        r"|application\s+(?:was|has\s+been)\s+(?:declined?|denied|rejected))\b"
+        r"[^.\n]{0,120}"
+        r"\b(?:because\s+of|due\s+to|based\s+on|on\s+account\s+of|"
+        r"on\s+the\s+basis\s+of|owing\s+to|by\s+reason\s+of)\s+"
+        r"(?:your\s+|the\s+applicant'?s?\s+|their\s+)?"
+        r"(?:race|color|religion|national\s+origin|sex|gender|"
+        r"marital\s+status|age(?!\s+of\b)|pregnancy|public\s+assistance|"
+        r"ethnic(?:ity)?|sexual\s+orientation|disabilit(?:y|ies))\b",
+        re.IGNORECASE,
+    ),
+    # Pattern B: "[protected characteristic] was/is/were a reason/factor/basis"
+    # "sex was a factor", "marital status is a reason for the decision"
+    re.compile(
+        r"\b(?:race|color|religion|national\s+origin|sex|gender|"
+        r"marital\s+status|pregnancy|ethnic(?:ity)?)\s+"
+        r"(?:was|is|were|are)\s+"
+        r"(?:a\s+|the\s+|one\s+of\s+the\s+)?(?:factor|reason|consideration|basis)\b",
+        re.IGNORECASE,
+    ),
+    # Pattern C: "your [characteristic] was/negatively affected/disqualifies"
+    # "your sex was the reason", "your age disqualifies you"
+    re.compile(
+        r"\byour\s+(?:race|color|religion|national\s+origin|sex|gender|"
+        r"marital\s+status|age|pregnancy|ethnic(?:ity)?)\s+"
+        r"(?:was\s+(?:the\s+|a\s+)?(?:reason|factor|basis|consideration)|"
+        r"disqualifies?\s+you|negatively\s+(?:affected|impacted)|"
+        r"played\s+a\s+(?:role|factor)|is\s+(?:the\s+|a\s+)?(?:reason|factor|basis))\b",
+        re.IGNORECASE,
+    ),
+    # Pattern D: "based on your/applicant's [characteristic]" — possessive form always means
+    # person's attribute, not a financial metric.  Catches "based on your religion",
+    # "based on the applicant's marital status", etc. even without a credit outcome verb.
+    re.compile(
+        r"\bbased\s+on\s+(?:your\s+|the\s+applicant'?s?\s+|their\s+)"
+        r"(?:race|color|religion|national\s+origin|sex|gender|"
+        r"marital\s+status|age(?!\s+of\b)|pregnancy|public\s+assistance|"
+        r"ethnic(?:ity)?|sexual\s+orientation|disabilit(?:y|ies))\b",
+        re.IGNORECASE,
+    ),
 ]
 
+# ---------------------------------------------------------------------------
+# Legacy alias kept for backwards compatibility with any callers that may
+# reference _PROHIBITED_BASIS_RE directly (internal tests, scripts).
+# ---------------------------------------------------------------------------
+_PROHIBITED_BASIS_PATTERNS: List[str] = [
+    r"(?:because\s+of|due\s+to|on\s+the\s+basis\s+of)\s+"
+    r"(?:your\s+)?(?:race|color|religion|national\s+origin|sex|gender|marital\s+status)",
+]
 _PROHIBITED_BASIS_RE = re.compile(
     "|".join(_PROHIBITED_BASIS_PATTERNS), re.IGNORECASE
+)
+
+# Negation words that, when present in a matched phrase, indicate the
+# characteristic is being EXCLUDED as a decision factor rather than cited as one.
+# e.g. "not based on race", "never due to sex", "without regard to age"
+_NEGATION_IN_MATCH_RE = re.compile(
+    r"\b(?:not|never|without|regardless|no|nor)\b", re.IGNORECASE
 )
 
 # Reg B Commentary — discouraged vague reason phrases that do not provide
@@ -97,12 +153,26 @@ _SPECIFIC_REASON_INDICATORS: List[re.Pattern] = [
     re.compile(r"credit\s+(?:score|rating|history|utilization|inquiries)", re.IGNORECASE),
     re.compile(r"employment\s+(?:history|status|length|stability)", re.IGNORECASE),
     re.compile(r"income\s+(?:insufficient|too\s+low|unverifiable|could\s+not\s+be\s+verified)", re.IGNORECASE),
+    re.compile(r"(?:unable|failed|could\s+not)\s+to\s+verify\s+(?:your\s+)?income", re.IGNORECASE),
+    re.compile(r"income\s+(?:verification|could\s+not\s+be\s+confirmed|was\s+not\s+verifiable)", re.IGNORECASE),
+    re.compile(r"verify\s+(?:your\s+)?income", re.IGNORECASE),
     re.compile(r"insufficient\s+(?:income|collateral|assets)", re.IGNORECASE),
     re.compile(r"(?:delinquent|derogatory|negative)\s+(?:accounts?|items?|history)", re.IGNORECASE),
     re.compile(r"(?:bankruptcy|foreclosure|charge[\s-]?off)", re.IGNORECASE),
     re.compile(r"(?:length|time)\s+(?:at\s+)?(?:current\s+)?(?:job|address|residence|employment)", re.IGNORECASE),
     re.compile(r"AA-\d{3}", re.IGNORECASE),  # Adverse action code reference
 ]
+
+# PII leak patterns — no PII should appear in applicant-facing output (PII-001).
+# Applied to ALL applicant communications, not just declines.
+_PII_LEAK_PATTERNS: Dict[str, re.Pattern] = {
+    "SSN":   re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
+    "Phone": re.compile(r"\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b"),
+    "Email": re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b"),
+    "DOB":   re.compile(
+        r"\b(?:19|20)\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])\b"
+    ),
+}
 
 # Waiver-of-rights language — must never appear in a consumer communication.
 _RIGHTS_WAIVER_PATTERNS: List[str] = [
@@ -194,6 +264,9 @@ class EcoaValidator:
         # ECOA-004: No rights-waiver language
         flags.extend(self._check_rights_waiver(narrative))
 
+        # PII-001: No PII leak in applicant-facing output (all applicant communications)
+        flags.extend(self._check_pii_leak(narrative))
+
         passed = len([f for f in flags if f.severity == "ERROR"]) == 0
 
         log.info(
@@ -212,20 +285,43 @@ class EcoaValidator:
     # -----------------------------------------------------------------------
 
     def _check_prohibited_basis(self, text: str) -> List[ComplianceFlag]:
+        """Flag text that ATTRIBUTES a credit decision to a protected characteristic.
+
+        Reg B § 202.2(z) prohibits basing decisions ON protected characteristics.
+        However, adverse action notices are legally required to list protected
+        characteristics in equal-treatment disclaimers (e.g. "We do not discriminate
+        based on race, color, sex...").  Those equal-treatment statements must not be
+        flagged.
+
+        We therefore check only for DISCRIMINATORY ATTRIBUTION patterns — phrases
+        that explicitly link a protected characteristic to the credit outcome (e.g.
+        "because of your sex", "denied due to age", "marital status was a factor").
+        """
         flags: List[ComplianceFlag] = []
-        for match in _PROHIBITED_BASIS_RE.finditer(text):
-            flags.append(
-                ComplianceFlag(
-                    rule_code="ECOA-001",
-                    severity="ERROR",
-                    description=(
-                        "Prohibited basis characteristic referenced in applicant communication. "
-                        "Reg B § 202.2(z) prohibits reference to race, color, religion, national "
-                        "origin, sex, marital status, age, or receipt of public assistance."
-                    ),
-                    matched_text=match.group(0),
+        for pattern in _DISCRIMINATORY_ATTRIBUTION_PATTERNS:
+            for match in pattern.finditer(text):
+                matched_text = match.group(0)
+                # Skip matches that contain a negation word OR that are immediately
+                # preceded by one (within 30 chars before the match start).
+                # This handles both:
+                #   "declined not based on race"  (negation inside match)
+                #   "Not based on your race"      (negation before match)
+                prefix = text[max(0, match.start() - 30):match.start()]
+                if _NEGATION_IN_MATCH_RE.search(matched_text) or _NEGATION_IN_MATCH_RE.search(prefix):
+                    continue
+                flags.append(
+                    ComplianceFlag(
+                        rule_code="ECOA-001",
+                        severity="ERROR",
+                        description=(
+                            "Credit decision attributed to a prohibited basis. "
+                            "Reg B § 202.2(z) forbids using race, color, religion, national "
+                            "origin, sex, marital status, age, or receipt of public assistance "
+                            "as a basis for any credit decision."
+                        ),
+                        matched_text=matched_text,
+                    )
                 )
-            )
         return flags
 
     def _check_specific_reasons(
@@ -309,9 +405,99 @@ class EcoaValidator:
             )
         return flags
 
+    def _check_pii_leak(self, text: str) -> List[ComplianceFlag]:
+        """PII-001: Detect PII leaked into applicant-facing narrative.
+
+        Fires for all applicant communications (not just declines) because
+        PII exposure in any consumer-facing output is a compliance violation
+        regardless of communication type.
+        """
+        flags: List[ComplianceFlag] = []
+        for pii_type, pattern in _PII_LEAK_PATTERNS.items():
+            match = pattern.search(text)
+            if match:
+                flags.append(
+                    ComplianceFlag(
+                        rule_code="PII-001",
+                        severity="ERROR",
+                        description=(
+                            f"{pii_type} personally identifiable information detected in "
+                            "applicant-facing communication. PII must not appear in "
+                            "consumer-facing output."
+                        ),
+                        matched_text=match.group(0),
+                    )
+                )
+        return flags
+
     def to_state_flags(self, result: ValidationResult) -> List[str]:
         """Convert ValidationResult to a list of compact flag strings for AgentState."""
         return [
             f"{f.rule_code}:{f.severity}:{f.description[:80]}"
             for f in result.flags
         ]
+
+
+# ---------------------------------------------------------------------------
+# Module-level PII scrubbing utility (PROMPT 1 — Eval 6a)
+# ---------------------------------------------------------------------------
+
+# Replacement tokens for each PII type
+_PII_REDACTION_LABELS: dict[str, str] = {
+    "SSN":   "[REDACTED-SSN]",
+    "Phone": "[REDACTED-PHONE]",
+    "Email": "[REDACTED-EMAIL]",
+    "DOB":   "[REDACTED-DOB]",
+}
+
+
+def scrub_pii_from_output(text: str) -> str:
+    """
+    Replace any PII tokens found in *text* with safe redaction labels.
+
+    Applies the same regex patterns used by EcoaValidator._check_pii_leak()
+    for input detection, but substitutes matched spans rather than flagging them.
+    Call this on every generated narrative/answer string before returning
+    it to any caller — including analyst-facing outputs, because PII should
+    never appear in system responses regardless of audience.
+
+    Returns the scrubbed string. If no PII is found the original string is
+    returned unchanged (no copy overhead for the common case).
+    """
+    scrubbed = text
+    for pii_type, pattern in _PII_LEAK_PATTERNS.items():
+        label = _PII_REDACTION_LABELS.get(pii_type, "[REDACTED]")
+        scrubbed = pattern.sub(label, scrubbed)
+    return scrubbed
+
+
+# ---------------------------------------------------------------------------
+# FCRA § 615(a) disclosure injection utility (PROMPT 2 — Eval 6b)
+# ---------------------------------------------------------------------------
+
+FCRA_615_DISCLOSURE: str = (
+    "\n\n---\n"
+    "**Your Rights Under the Fair Credit Reporting Act (FCRA)**\n\n"
+    "We obtained information from a consumer reporting agency (credit bureau) "
+    "that influenced our decision. You have the right to a free copy of your "
+    "consumer report from that agency within 60 days of receiving this notice. "
+    "You also have the right to dispute the accuracy or completeness of any "
+    "information in your report directly with the consumer reporting agency. "
+    "For more information about your rights, visit www.consumerfinance.gov/learnmore."
+)
+
+
+def inject_fcra_disclosure(narrative: str) -> str:
+    """
+    Append the FCRA § 615(a) consumer rights block to *narrative* if it is not
+    already present.
+
+    Safe to call unconditionally on all adverse action / decline narratives —
+    if the LLM already included the required language the function is a no-op.
+    """
+    already_present = any(
+        pattern.search(narrative) for pattern in _FCRA_DISCLOSURE_REQUIRED_PHRASES
+    )
+    if already_present:
+        return narrative
+    return narrative + FCRA_615_DISCLOSURE

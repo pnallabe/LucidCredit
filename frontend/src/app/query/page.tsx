@@ -1,457 +1,414 @@
 /**
  * app/query/page.tsx
  * ------------------
- * Analyst query console with SSE streaming.
+ * LucidCredit v2 — Conversational analyst chat.
  *
- * The analyst types a free-text question. The frontend connects to
- * GET /v1/query/stream and renders:
- *   - Live progress indicator (step-by-step node completion)
- *   - NarrativeCard once the result arrives
- *   - SQL queries executed (if any)
- *   - Follow-up suggestions as clickable pills
+ * Natural chat interface with real-time streaming, conversation history,
+ * and contextual follow-up suggestions. Clarifications handled conversationally.
  */
 "use client";
 
 import * as React from "react";
-import {
-  Terminal,
-  Send,
-  CheckCircle,
-  Circle,
-  AlertCircle,
-  Clock,
-  Database,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
-import { NarrativeCard } from "@/components/NarrativeCard";
-import { ReasoningTraceCard } from "@/components/ReasoningTraceCard";
-import {
-  streamAnalystQuery,
-  type AnalystQueryResponse,
-  type ClarificationItem,
-  type StreamStep,
-  type StreamStatusEvent,
-} from "@/lib/copilot-client";
+import { Send, Terminal, RefreshCw, Sparkles } from "lucide-react";
+import { streamChat } from "@/lib/copilot-client";
 
 // ---------------------------------------------------------------------------
-// Step pipeline definition (controls display order)
+// Types
 // ---------------------------------------------------------------------------
 
-const PIPELINE_STEPS: { step: StreamStep; label: string }[] = [
-  { step: "started", label: "Connecting to agent" },
-  { step: "intent_classified", label: "Intent classified" },
-  { step: "retrieval_complete", label: "Context retrieved" },
-  { step: "grading_complete", label: "Documents graded" },
-  { step: "reasoning_complete", label: "Reasoning complete" },
-  { step: "grounding_complete", label: "Citations enforced" },
-  { step: "confidence_scored", label: "Confidence scored" },
-  { step: "compliance_checked", label: "Compliance checked" },
-  { step: "session_persisted", label: "Session saved" },
-];
-
-type StepStatus = "pending" | "active" | "done";
-
-interface StepState {
-  status: StepStatus;
-  metadata?: StreamStatusEvent;
+interface Message {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  streaming?: boolean;
+  followUps?: string[];
 }
+
+const STARTERS = [
+  "What is the current delinquency rate across the portfolio?",
+  "Show the charge-off rate trend by quarter.",
+  "What is the approval rate by FICO tier for personal loans?",
+  "What is the total outstanding balance by product type?",
+];
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export default function QueryPage() {
-  const [query, setQuery] = React.useState("");
-  const [dataScope, setDataScope] = React.useState("");
+  const [messages, setMessages] = React.useState<Message[]>([]);
+  const [input, setInput] = React.useState("");
   const [loading, setLoading] = React.useState(false);
-  const [steps, setSteps] = React.useState<Record<string, StepState>>({});
-  const [result, setResult] = React.useState<AnalystQueryResponse | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-  const [history, setHistory] = React.useState<string[]>([]);
-  // Persist the session_id across turns so the backend can recall conversation history
   const [sessionId, setSessionId] = React.useState<string | null>(null);
-
-  // Clarification state
-  const [clarificationItems, setClarificationItems] = React.useState<ClarificationItem[]>([]);
-  const [clarificationAnswers, setClarificationAnswers] = React.useState<Record<string, string>>({});
-  const pendingQueryRef = React.useRef<string>("");
+  const [error, setError] = React.useState<string | null>(null);
 
   const abortRef = React.useRef<(() => void) | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const bottomRef = React.useRef<HTMLDivElement>(null);
 
-  function handleNewConversation() {
-    setSessionId(null);
-    setResult(null);
-    setError(null);
-    setSteps({});
-    setClarificationItems([]);
-    setClarificationAnswers({});
-    setQuery("");
-  }
+  React.useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
-  function handleSubmit(q?: string, clarifications?: Record<string, string>) {
-    const activeQuery = q ?? query;
-    if (!activeQuery.trim() || loading) return;
-
-    // Cancel any in-flight stream
-    abortRef.current?.();
-
-    setLoading(true);
-    setResult(null);
-    setError(null);
-    setSteps({});
-    setClarificationItems([]);
-    setClarificationAnswers({});
-    if (!clarifications) {
-      setHistory((h) => [activeQuery, ...h.slice(0, 9)]);
-    }
-
-    abortRef.current = streamAnalystQuery(
-      {
-        query: activeQuery,
-        data_scope: dataScope ? dataScope.split(",").map((s) => s.trim()) : [],
-        // Reuse the session_id from the previous turn so the backend can load
-        // conversation history via the LangGraph checkpointer.
-        session_id: sessionId ?? undefined,
-        clarifications: clarifications ?? undefined,
-      },
-      {
-        onStatus: (event) => {
-          setSteps((prev) => {
-            const updated = { ...prev };
-            let found = false;
-            for (const { step } of PIPELINE_STEPS) {
-              if (step === event.step) {
-                updated[step] = { status: "active", metadata: event };
-                found = true;
-              } else if (!found && !updated[step]) {
-                updated[step] = { status: "done" };
-              } else if (!found && updated[step]?.status === "active") {
-                updated[step] = { ...updated[step], status: "done" };
-              }
-            }
-            return updated;
-          });
-        },
-        onResult: (res) => {
-          setResult(res);
-          // Capture session_id so subsequent questions in this conversation
-          // are linked to the same graph checkpoint (enabling history recall).
-          if (res.session_id) setSessionId(res.session_id);
-          setSteps((prev) => {
-            const updated = { ...prev };
-            for (const { step } of PIPELINE_STEPS) {
-              updated[step] = { status: "done", metadata: prev[step]?.metadata };
-            }
-            return updated;
-          });
-        },
-        onClarification: (event) => {
-          pendingQueryRef.current = activeQuery;
-          setClarificationItems(event.clarification_items);
-          setClarificationAnswers(
-            Object.fromEntries(event.clarification_items.map((it) => [it.id, ""]))
-          );
-          setLoading(false);
-        },
-        onError: (err) => {
-          setError(`${err.error}: ${err.message}`);
-          setLoading(false);
-        },
-        onDone: () => {
-          setLoading(false);
-        },
-      }
-    );
-  }
-
-  function handleClarificationSubmit() {
-    // Validate all items have an answer
-    const allAnswered = clarificationItems.every((it) => clarificationAnswers[it.id]?.trim());
-    if (!allAnswered) return;
-    handleSubmit(pendingQueryRef.current, clarificationAnswers);
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      handleSubmit();
-    }
-  }
-
-  // Auto-resize textarea
   React.useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
     ta.style.height = "auto";
     ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`;
-  }, [query]);
+  }, [input]);
 
-  const hasSteps = Object.keys(steps).length > 0;
+  function handleNewConversation() {
+    abortRef.current?.();
+    setMessages([]);
+    setSessionId(null);
+    setError(null);
+    setInput("");
+    setLoading(false);
+  }
+
+  function handleSend(text?: string) {
+    const message = (text ?? input).trim();
+    if (!message || loading) return;
+
+    setInput("");
+    setError(null);
+
+    const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: message };
+    const assistantMsgId = crypto.randomUUID();
+    const assistantMsg: Message = {
+      id: assistantMsgId,
+      role: "assistant",
+      content: "",
+      streaming: true,
+    };
+
+    setMessages((prev) => [...prev, userMsg, assistantMsg]);
+    setLoading(true);
+
+    abortRef.current?.();
+    abortRef.current = streamChat(message, sessionId, null, {
+      onChunk: (chunk) => {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMsgId ? { ...m, content: m.content + chunk } : m
+          )
+        );
+      },
+      onDone: (sid) => {
+        setSessionId(sid);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMsgId
+              ? { ...m, streaming: false, followUps: getFollowUps(message) }
+              : m
+          )
+        );
+        setLoading(false);
+      },
+      onError: (err) => {
+        setError(err);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMsgId
+              ? {
+                  ...m,
+                  streaming: false,
+                  content: m.content || "Something went wrong. Please try again.",
+                }
+              : m
+          )
+        );
+        setLoading(false);
+      },
+    });
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      handleSend();
+    }
+  }
+
+  const isEmpty = messages.length === 0;
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-4 py-8">
-      {/* Page title */}
-      <div className="flex items-center justify-between gap-2">
+    <div className="flex h-[calc(100vh-4rem)] flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-slate-700/60 px-6 py-3">
         <div className="flex items-center gap-2">
-          <Terminal className="h-5 w-5 text-brand-400" />
-          <h1 className="text-2xl font-bold text-slate-100">Analyst Query Console</h1>
+          <Terminal className="h-4 w-4 text-brand-400" />
+          <h1 className="text-base font-semibold text-slate-100">Analyst Copilot</h1>
+          {sessionId && (
+            <span className="rounded-full bg-slate-800 px-2 py-0.5 font-mono text-[10px] text-slate-500">
+              {sessionId.slice(0, 8)}&hellip;
+            </span>
+          )}
         </div>
-        {sessionId && (
+        {!isEmpty && (
           <button
             onClick={handleNewConversation}
-            className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs text-slate-300 transition hover:border-brand-500 hover:text-brand-300"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-400 transition hover:border-slate-600 hover:text-slate-200"
           >
-            New Conversation
+            <RefreshCw className="h-3 w-3" />
+            New chat
           </button>
         )}
       </div>
-      <p className="text-sm text-slate-400">
-        Ask anything about credit decisions, portfolio metrics, or regulatory guidance.
-        The agent retrieves grounded context and streams its reasoning.
-      </p>
 
-      {/* Query input */}
-      <div className="rounded-xl border border-slate-700 bg-slate-800/60 p-4">
-        <textarea
-          ref={textareaRef}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="e.g. Why was loan application #4321 declined? What is the portfolio DTI distribution for Q1 2026?"
-          disabled={loading}
-          rows={3}
-          className="w-full resize-none bg-transparent text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
-        />
-
-        <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
-          {/* Data scope */}
-          <div className="flex items-center gap-2">
-            <Database className="h-3.5 w-3.5 text-slate-500" />
-            <input
-              type="text"
-              value={dataScope}
-              onChange={(e) => setDataScope(e.target.value)}
-              placeholder="Data scope (optional, comma-separated)"
-              className="w-52 rounded bg-slate-900 px-2 py-1 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
-            />
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-4 py-6">
+        {isEmpty ? (
+          <div className="mx-auto max-w-2xl">
+            <div className="mb-8 text-center">
+              <div className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-brand-950/60 ring-1 ring-brand-800/40">
+                <Sparkles className="h-6 w-6 text-brand-400" />
+              </div>
+              <h2 className="text-xl font-semibold text-slate-100">LucidCredit</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                Ask anything about the portfolio — delinquency, balances, charge-offs,
+                approvals, trends, or credit risk strategy.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {STARTERS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => handleSend(s)}
+                  className="rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-3 text-left text-sm text-slate-300 transition hover:border-brand-700/60 hover:bg-slate-800 hover:text-slate-100"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
           </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500">⌘+Enter to send</span>
-            <button
-              onClick={() => handleSubmit()}
-              disabled={loading || !query.trim()}              className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {loading ? (
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-              ) : (
-                <Send className="h-4 w-4" />
-              )}
-              {loading ? "Running…" : "Ask"}
-            </button>
+        ) : (
+          <div className="mx-auto max-w-2xl space-y-6">
+            {messages.map((msg) => (
+              <ChatMessage key={msg.id} message={msg} onFollowUp={handleSend} />
+            ))}
+            {error && (
+              <p className="rounded-lg border border-red-800/50 bg-red-950/30 px-4 py-2.5 text-sm text-red-300">
+                {error}
+              </p>
+            )}
+            <div ref={bottomRef} />
           </div>
-        </div>
+        )}
       </div>
 
-      {/* Live pipeline progress */}
-      {hasSteps && (
-        <div className="rounded-xl border border-slate-700 bg-slate-800/40 px-5 py-4">
-          <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">
-            Agent Pipeline
-          </p>
-          <div className="space-y-2">
-            {PIPELINE_STEPS.map(({ step, label }) => {
-              const s = steps[step];
-              const status: StepStatus = s?.status ?? "pending";
-              const meta = s?.metadata;
-
-              return (
-                <div key={step} className="flex items-center gap-2.5">
-                  {status === "done" && (
-                    <CheckCircle className="h-4 w-4 flex-shrink-0 text-emerald-400" />
-                  )}
-                  {status === "active" && (
-                    <Clock className="h-4 w-4 flex-shrink-0 animate-pulse text-brand-400" />
-                  )}
-                  {status === "pending" && (
-                    <Circle className="h-4 w-4 flex-shrink-0 text-slate-600" />
-                  )}
-                  <span
-                    className={cn(
-                      "text-sm",
-                      status === "done" && "text-slate-300",
-                      status === "active" && "font-medium text-brand-300",
-                      status === "pending" && "text-slate-600"
-                    )}
-                  >
-                    {label}
-                  </span>
-                  {/* Step metadata */}
-                  {meta && (
-                    <span className="ml-auto text-xs text-slate-500">
-                      {meta.chunk_count != null && `${meta.chunk_count} chunks`}
-                      {meta.citation_count != null && `${meta.citation_count} citations`}
-                      {meta.confidence_score != null &&
-                        `${Math.round(meta.confidence_score * 100)}% confidence`}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Clarification panel */}
-      {clarificationItems.length > 0 && (
-        <div className="rounded-xl border border-amber-700/60 bg-amber-950/30 px-5 py-4 space-y-4">
-          <p className="text-sm font-medium text-amber-300">
-            A bit more context is needed to answer accurately:
-          </p>
-          {clarificationItems.map((item) => (
-            <div key={item.id} className="space-y-2">
-              <label className="block text-sm text-slate-200">{item.question}</label>
-              {item.options.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {item.options.map((opt) => (
-                    <button
-                      key={opt}
-                      onClick={() =>
-                        setClarificationAnswers((prev) => ({ ...prev, [item.id]: opt }))
-                      }
-                      className={cn(
-                        "rounded-full border px-3 py-1.5 text-xs transition",
-                        clarificationAnswers[item.id] === opt
-                          ? "border-brand-500 bg-brand-950/60 text-brand-200"
-                          : "border-slate-600 bg-slate-800 text-slate-300 hover:border-brand-500"
-                      )}
-                    >
-                      {opt}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <input
-                  type="text"
-                  value={clarificationAnswers[item.id] ?? ""}
-                  onChange={(e) =>
-                    setClarificationAnswers((prev) => ({ ...prev, [item.id]: e.target.value }))
-                  }
-                  className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
-                />
-              )}
-            </div>
-          ))}
-          <button
-            onClick={handleClarificationSubmit}
-            disabled={!clarificationItems.every((it) => clarificationAnswers[it.id]?.trim())}
-            className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Send className="h-4 w-4" />
-            Submit Answer
-          </button>
-        </div>
-      )}
-
-      {/* Error */}
-      {error && (
-        <div className="flex items-start gap-2 rounded-lg border border-red-800/60 bg-red-950/30 px-4 py-3">
-          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-red-400" />
-          <p className="text-sm text-red-300">{error}</p>
-        </div>
-      )}
-
-      {/* Result */}
-      {result && (
-        <div className="space-y-4 animate-fade-in">
-          <NarrativeCard
-            narrative={result.answer}
-            citations={result.citations}
-            confidenceScore={result.confidence_score}
-            audience="analyst"
-          />
-
-          {/* Reasoning trace — how the AI got here */}
-          {result.reasoning_trace && (
-            <ReasoningTraceCard trace={result.reasoning_trace} />
-          )}
-
-          {/* SQL queries */}
-          {result.sql_queries_executed.length > 0 && (
-            <details className="rounded-lg border border-slate-700 bg-slate-800/40">
-              <summary className="cursor-pointer px-4 py-2.5 text-xs font-medium text-slate-400 hover:text-slate-300">
-                SQL Queries Executed ({result.sql_queries_executed.length})
-              </summary>
-              <div className="space-y-2 px-4 pb-4">
-                {result.sql_queries_executed.map((sql, idx) => (
-                  <pre
-                    key={idx}
-                    className="overflow-x-auto rounded bg-slate-900 p-3 font-mono text-xs text-slate-300"
-                  >
-                    {sql}
-                  </pre>
-                ))}
-              </div>
-            </details>
-          )}
-
-          {/* Follow-up suggestions */}
-          {result.follow_up_suggestions.length > 0 && (
-            <div>
-              <p className="mb-2 text-xs font-medium text-slate-400">Follow-up Questions</p>
-              <div className="flex flex-wrap gap-2">
-                {result.follow_up_suggestions.map((suggestion, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => {
-                      setQuery(suggestion);
-                      handleSubmit(suggestion);
-                    }}
-                    className="rounded-full border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs text-slate-300 transition hover:border-brand-500 hover:bg-brand-950/40 hover:text-brand-300"
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Audit link */}
-          <p className="text-xs text-slate-500">
-            Session:{" "}
-            <a
-              href={`/audit/${result.session_id}`}
-              className="font-mono text-brand-400 underline underline-offset-2 hover:text-brand-300"
+      {/* Input */}
+      <div className="border-t border-slate-700/60 bg-slate-900/80 px-4 py-4 backdrop-blur">
+        <div className="mx-auto max-w-2xl">
+          <div className="flex items-end gap-2 rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-3 focus-within:border-brand-600/60">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask about the portfolio..."
+              disabled={loading}
+              rows={1}
+              className="flex-1 resize-none bg-transparent text-sm text-slate-100 placeholder-slate-500 focus:outline-none"
+            />
+            <button
+              onClick={() => handleSend()}
+              disabled={loading || !input.trim()}
+              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-brand-600 text-white transition hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {result.session_id}
-            </a>
+              {loading ? (
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              ) : (
+                <Send className="h-3.5 w-3.5" />
+              )}
+            </button>
+          </div>
+          <p className="mt-1.5 text-center text-[11px] text-slate-600">
+            Cmd+Enter to send &middot; Conversation remembered across turns
           </p>
         </div>
-      )}
+      </div>
+    </div>
+  );
+}
 
-      {/* Query history */}
-      {history.length > 0 && !loading && !result && (
-        <div>
-          <p className="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">
-            Recent Queries
-          </p>
-          <div className="space-y-1">
-            {history.map((q, idx) => (
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+function ChatMessage({
+  message,
+  onFollowUp,
+}: {
+  message: Message;
+  onFollowUp: (text: string) => void;
+}) {
+  if (message.role === "user") {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-brand-700/30 px-4 py-2.5 text-sm text-slate-100 ring-1 ring-brand-600/20">
+          {message.content}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex gap-3">
+      <div className="mt-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-brand-900/60 ring-1 ring-brand-700/40">
+        <Sparkles className="h-3.5 w-3.5 text-brand-400" />
+      </div>
+      <div className="flex-1 space-y-3">
+        <div className="prose prose-sm prose-invert max-w-none text-slate-300">
+          <MarkdownText text={message.content} />
+          {message.streaming && (
+            <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-brand-400 align-middle" />
+          )}
+        </div>
+        {!message.streaming && (message.followUps?.length ?? 0) > 0 && (
+          <div className="flex flex-wrap gap-2 pt-1">
+            {message.followUps!.map((s) => (
               <button
-                key={idx}
-                onClick={() => {
-                  setQuery(q);
-                  handleSubmit(q);
-                }}
-                className="w-full truncate rounded-lg border border-slate-700 bg-slate-800/40 px-3 py-2 text-left text-sm text-slate-400 transition hover:border-slate-600 hover:text-slate-300"
+                key={s}
+                onClick={() => onFollowUp(s)}
+                className="rounded-full border border-slate-700 bg-slate-800/60 px-3 py-1 text-xs text-slate-400 transition hover:border-brand-600/60 hover:text-slate-200"
               >
-                {q}
+                {s}
               </button>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
+}
+
+function MarkdownText({ text }: { text: string }) {
+  if (!text) return null;
+  const lines = text.split("\n");
+  const elements: React.ReactNode[] = [];
+  let listBuffer: string[] = [];
+  let codeBuffer: string[] = [];
+  let inCode = false;
+
+  function flushList() {
+    if (!listBuffer.length) return;
+    elements.push(
+      <ul key={elements.length} className="my-2 list-disc space-y-0.5 pl-5">
+        {listBuffer.map((l, i) => (
+          <li key={i}>
+            <InlineMarkdown text={l} />
+          </li>
+        ))}
+      </ul>
+    );
+    listBuffer = [];
+  }
+
+  function flushCode() {
+    if (!codeBuffer.length) return;
+    elements.push(
+      <pre
+        key={elements.length}
+        className="my-2 overflow-x-auto rounded-lg bg-slate-900 p-3 font-mono text-xs text-slate-300"
+      >
+        {codeBuffer.join("\n")}
+      </pre>
+    );
+    codeBuffer = [];
+  }
+
+  for (const line of lines) {
+    if (line.startsWith("```")) {
+      if (inCode) {
+        flushCode();
+        inCode = false;
+      } else {
+        flushList();
+        inCode = true;
+      }
+      continue;
+    }
+    if (inCode) {
+      codeBuffer.push(line);
+      continue;
+    }
+    if (line.startsWith("- ") || line.startsWith("* ")) {
+      listBuffer.push(line.slice(2));
+      continue;
+    }
+    flushList();
+    if (line.startsWith("### ")) {
+      elements.push(
+        <h4 key={elements.length} className="mt-3 mb-0.5 text-sm font-semibold text-slate-200">
+          {line.slice(4)}
+        </h4>
+      );
+    } else if (line.startsWith("## ")) {
+      elements.push(
+        <h3 key={elements.length} className="mt-4 mb-1 text-base font-semibold text-slate-100">
+          {line.slice(3)}
+        </h3>
+      );
+    } else if (line.startsWith("# ")) {
+      elements.push(
+        <h2 key={elements.length} className="mt-4 mb-1 text-lg font-bold text-slate-100">
+          {line.slice(2)}
+        </h2>
+      );
+    } else if (!line.trim()) {
+      elements.push(<div key={elements.length} className="h-2" />);
+    } else {
+      elements.push(
+        <p key={elements.length} className="text-sm leading-relaxed">
+          <InlineMarkdown text={line} />
+        </p>
+      );
+    }
+  }
+  flushList();
+  flushCode();
+  return <>{elements}</>;
+}
+
+function InlineMarkdown({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.startsWith("**") && part.endsWith("**")) {
+          return (
+            <strong key={i} className="font-semibold text-slate-100">
+              {part.slice(2, -2)}
+            </strong>
+          );
+        }
+        if (part.startsWith("`") && part.endsWith("`")) {
+          return (
+            <code key={i} className="rounded bg-slate-800 px-1 font-mono text-xs text-brand-300">
+              {part.slice(1, -1)}
+            </code>
+          );
+        }
+        return <React.Fragment key={i}>{part}</React.Fragment>;
+      })}
+    </>
+  );
+}
+
+function getFollowUps(question: string): string[] {
+  const q = question.toLowerCase();
+  if (/delinquency|dpd|past\.due/.test(q))
+    return [
+      "How does this compare to last year?",
+      "Break down by product type.",
+      "What is driving the trend?",
+    ];
+  if (/charge\.off|write\.off/.test(q))
+    return ["Show the quarterly trend.", "Which vintage has the highest charge-off rate?"];
+  if (/approval|origination/.test(q))
+    return ["What is the average FICO for approved loans?", "Show origination volume by month."];
+  if (/balance|outstanding/.test(q))
+    return ["Show the balance trend over 12 months.", "Break down by credit grade."];
+  return ["Show me the trend over time.", "Break this down by product type."];
 }

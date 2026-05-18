@@ -257,6 +257,95 @@ export function streamAnalystQuery(
 }
 
 // ---------------------------------------------------------------------------
+// Chat v2 — Conversational endpoint (replaces streamAnalystQuery for the UI)
+// ---------------------------------------------------------------------------
+
+export interface ChatCallbacks {
+  /** Called with each streamed text chunk as it arrives */
+  onChunk: (text: string) => void;
+  /** Called when the stream is complete; receives the final session_id */
+  onDone: (sessionId: string) => void;
+  /** Called on a network or server error */
+  onError: (error: string) => void;
+}
+
+/**
+ * Stream a conversational message to POST /v1/chat/stream.
+ *
+ * Returns an abort function — call it to cancel the in-flight request.
+ *
+ * Usage:
+ *   const abort = streamChat("What is the delinquency rate?", sessionId, null, {
+ *     onChunk: (t) => setAnswer(a => a + t),
+ *     onDone:  (sid) => { setSessionId(sid); setLoading(false); },
+ *     onError: (e)   => { setError(e); setLoading(false); },
+ *   });
+ */
+export function streamChat(
+  message: string,
+  sessionId: string | null,
+  clarifications: Record<string, string> | null,
+  callbacks: ChatCallbacks
+): () => void {
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/v1/chat/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message, session_id: sessionId, clarifications }),
+        signal: controller.signal,
+      });
+
+      const newSessionId = res.headers.get("X-Session-Id") || sessionId || crypto.randomUUID();
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: res.statusText }));
+        callbacks.onError((err as { message?: string }).message || res.statusText);
+        return;
+      }
+
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6);
+          if (data === "[DONE]") {
+            callbacks.onDone(newSessionId);
+            return;
+          }
+          if (data.startsWith("[ERROR]")) {
+            callbacks.onError(data.slice(7).trim());
+            return;
+          }
+          // The server escapes newlines as \\n so the SSE frame stays single-line
+          callbacks.onChunk(data.replace(/\\n/g, "\n"));
+        }
+      }
+
+      callbacks.onDone(newSessionId);
+    } catch (err: unknown) {
+      if ((err as Error).name !== "AbortError") {
+        callbacks.onError(String(err));
+      }
+    }
+  })();
+
+  return () => controller.abort();
+}
+
+// ---------------------------------------------------------------------------
 // Applicant Communication
 // ---------------------------------------------------------------------------
 
