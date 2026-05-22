@@ -6,5 +6,13 @@
     "http_status": 200,
     "error": "",
     "confidence_score": 0.0
+  },
+  {
+    "question": "Explain the FCRA section 615 consumer rights disclosure.",
+    "intent": "explain_decision",
+    "failure_mode": "GROUNDING_FAILED",
+    "http_status": 200,
+    "error": "",
+    "confidence_score": 0.4917
   }
 ]

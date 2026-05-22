@@ -48,3 +48,31 @@ Report: eval_20260517_215903.json
 ## 20260517_221715 — ❌ FAIL
 FAILURES in: 3. Tool Selection F1, 7a. Latency p95 (all tiers)
 Report: eval_20260517_221715.json
+
+## 20260521_200621 — ❌ FAIL
+FAILURES in: 5a. Faithfulness Rate, 7a. Latency p95 (all tiers)
+Report: eval_20260521_200621.json
+
+## 20260522_165616 — ❌ FAIL
+FAILURES in: 7a. Latency p95 (all tiers)
+Report: eval_20260522_165616.json
+
+## 20260522_180442 — ⚠️ WARN
+Warnings in: 5c. MRR / Precision@5, 7a. Latency p95 (all tiers); all others PASS
+Report: eval_20260522_180442.json
+
+## 20260522_195618 — ❌ FAIL
+FAILURES in: 3. Tool Selection F1, 5a. Faithfulness Rate
+Report: eval_20260522_195618.json
+
+## 20260522_202650 — ❌ FAIL
+FAILURES in: 7a. Latency p95 (all tiers)
+Report: eval_20260522_202650.json
+
+## 20260522_204449 — ⚠️ WARN
+Warnings in: 5c. MRR / Precision@5; all others PASS
+Report: eval_20260522_204449.json
+
+## 20260522_210159 — ✅ PASS
+All 13 evals PASS — no regressions.
+Report: eval_20260522_210159.json

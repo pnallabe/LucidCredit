@@ -97,7 +97,7 @@ def _rows_to_chunk(
     nl_summary = "\n".join(nl_lines)
     return RetrievedChunk(
         chunk_id="analytics_bq_ask",
-        source_type="db",
+        source_type="api",
         source_ref="bigquery:credit-risk-platform",
         content=f"{header}\n\n{body}\n\n{nl_summary}",
         relevance="RELEVANT",
@@ -305,7 +305,7 @@ def _no_matching_field_chunk(question: str, reason: str) -> RetrievedChunk:
     """Return a structured 'field not available' chunk to prevent hallucination."""
     return RetrievedChunk(
         chunk_id="analytics_no_matching_field",
-        source_type="db",
+        source_type="api",
         source_ref="bigquery:credit-risk-platform",
         content=(
             f"[Credit Risk Analytics Data]\n"
@@ -513,7 +513,7 @@ async def ask_analytics(
             content_lines.append(f"SQL executed: {generated_sql[:400]}")
         return [RetrievedChunk(
             chunk_id="analytics_bq_no_data",
-            source_type="db",
+            source_type="api",
             source_ref="bigquery:credit-risk-platform",
             content="\n".join(content_lines),
             relevance="RELEVANT",

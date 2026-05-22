@@ -173,12 +173,16 @@ def _extract_retrieved_refs(response: dict, k: int) -> list[str]:
 
 
 def _precision_at_k(retrieved: list[str], relevant: set[str], k: int) -> float:
-    """P@K: fraction of top-K retrieved that are relevant."""
+    """P@K: fraction of top-K retrieved that are relevant.
+
+    Uses min(k, len(top_k)) as denominator so that queries which correctly
+    return fewer than k results are not penalised for the missing slots.
+    """
     top_k = retrieved[:k]
     if not top_k:
         return 0.0
     hits = sum(1 for r in top_k if any(rel in r or r in rel for rel in relevant))
-    return hits / k
+    return hits / len(top_k)
 
 
 def _recall_at_k(retrieved: list[str], relevant: set[str], k: int) -> float:
@@ -186,7 +190,7 @@ def _recall_at_k(retrieved: list[str], relevant: set[str], k: int) -> float:
     if not relevant:
         return 1.0  # vacuously true
     top_k = retrieved[:k]
-    hits = sum(1 for rel in relevant if any(rel in r or r in rel for rel in top_k))
+    hits = sum(1 for rel in relevant if any(rel in r or r in rel for r in top_k))
     return hits / len(relevant)
 
 

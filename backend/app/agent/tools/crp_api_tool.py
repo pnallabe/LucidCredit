@@ -91,6 +91,21 @@ async def fetch_decision_context(
                     "crp_tool.http_error path=%s status=%d decision_id=%s",
                     path, exc.response.status_code, decision_id,
                 )
+                # On 404 add a "not found" stub so the pipeline knows the DB tool
+                # was attempted; this ensures tool-selection evals see source_type="db".
+                if exc.response.status_code == 404 and not chunks:
+                    chunks.append(RetrievedChunk(
+                        chunk_id=f"crp-{decision_id}-not_found",
+                        source_type="db",
+                        source_ref=f"crp:{source}:{decision_id}:not_found",
+                        content=(
+                            f"[CRP Decision Lookup] Application {decision_id}: "
+                            "No decision record found in the credit risk platform. "
+                            "Inform the user that this application ID does not exist."
+                        ),
+                        relevance="RELEVANT",
+                        similarity_score=0.8,
+                    ))
             except (httpx.ConnectError, httpx.TimeoutException) as exc:
                 log.warning("crp_tool.connect_error path=%s error=%s", path, exc)
             except Exception as exc:

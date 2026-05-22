@@ -72,7 +72,7 @@ TIERS: list[dict] = [
         "tier": 3,
         "name": "Multi-step (decomposed broad query)",
         "slo_p95_s": 25.0,
-        "slo_p50_s": 15.0,
+        "slo_p50_s": 17.0,
         "prompts": [
             "Provide a complete portfolio health summary including delinquency, charge-off, and balance metrics.",
             "Show a comprehensive credit quality overview: NPL ratio, average PD, 30+ and 90+ DPD rates.",

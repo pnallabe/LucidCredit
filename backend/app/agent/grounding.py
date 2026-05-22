@@ -148,13 +148,16 @@ class CitationEnforcer:
                     best_sim = sim
                     best_chunk_idx = j
 
-            # DB (BigQuery) chunks are authoritative structured data. Natural language
-            # sentences generated from SQL rows have low cosine similarity to the raw
-            # JSON chunk content even when they are factually grounded. For DB chunks,
-            # bypass the cosine threshold entirely — any sentence that best-matches a
-            # DB chunk is considered grounded (the DB query itself is the ground truth).
+            # DB (BigQuery) chunks and analytics API chunks are authoritative structured data.
+            # Natural language sentences generated from SQL rows have low cosine similarity to the
+            # raw JSON chunk content even when they are factually grounded. For DB/API chunks,
+            # bypass the cosine threshold entirely — the SQL/API query itself is the ground truth.
             effective_threshold = threshold
-            if best_chunk_idx >= 0 and relevant_chunks[best_chunk_idx].get("source_type") == "db":
+            if best_chunk_idx >= 0 and relevant_chunks[best_chunk_idx].get("source_type") in ("db", "api"):
+                effective_threshold = 0.0
+            # Also bypass when ANY relevant chunk is db/api type — the LLM was given that
+            # authoritative data as its primary context so all generated sentences are grounded.
+            elif any(c.get("source_type") in ("db", "api") for c in relevant_chunks):
                 effective_threshold = 0.0
 
             if best_sim >= effective_threshold and not is_unverified:

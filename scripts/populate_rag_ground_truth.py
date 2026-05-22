@@ -52,9 +52,10 @@ async def populate(backend_url: str, dry_run: bool) -> None:
     async with httpx.AsyncClient(base_url=backend_url, timeout=30.0) as client:
         for entry in fixture:
             eval_id = entry.get("eval_id", "?")
-            query = entry.get("query", "")
+            # Support both 'query' and 'question' field names
+            query = entry.get("query") or entry.get("question", "")
             if not query:
-                print(f"WARN [{eval_id}] no query field — skipping")
+                print(f"WARN [{eval_id}] no query/question field — skipping")
                 skipped += 1
                 continue
 
@@ -87,7 +88,7 @@ async def populate(backend_url: str, dry_run: bool) -> None:
             ]
 
             if chunk_ids:
-                entry["expected_chunk_ids"] = chunk_ids
+                entry["relevant_chunk_ids"] = chunk_ids
                 updated += 1
                 print(f"OK   [{eval_id}] {len(chunk_ids)} chunk(s): {chunk_ids[:2]}")
             else:

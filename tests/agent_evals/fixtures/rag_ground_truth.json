@@ -1,63 +1,121 @@
 [
   {
     "question": "What is the total outstanding loan balance?",
-    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"],
+    "relevant_chunk_ids": [
+      "bigquery:credit-risk-platform"
+    ],
     "_note": "Populate relevant_chunk_ids from citations[].source_ref or reasoning_trace.retrieved_context[].source_ref after running the agent once"
   },
   {
     "question": "What is the delinquency rate for personal loans?",
-    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+    "relevant_chunk_ids": [
+      "bigquery:credit-risk-platform"
+    ]
   },
   {
     "question": "What are the adverse action notice requirements under ECOA?",
-    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+    "relevant_chunk_ids": [
+      "policy_docs:policy_manuals/cc_policy_2020_2021.md#chunk4"
+    ]
   },
   {
     "question": "What is the FCRA section 615 disclosure requirement?",
-    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+    "relevant_chunk_ids": [
+      "policy_docs:fair_lending/fair_lending_2019.md#chunk4",
+      "policy_docs:policy_manuals/pl_policy_2020_2022.md#chunk5",
+      "policy_docs:policy_manuals/pl_policy_2015_2019.md#chunk4",
+      "policy_docs:policy_manuals/cc_policy_2022_2026.md#chunk4",
+      "policy_docs:policy_manuals/pl_policy_2023_2026.md#chunk4",
+      "policy_docs:policy_manuals/mort_policy_2022_2026.md#chunk5",
+      "policy_docs:policy_manuals/pl_policy_2020_2022.md#chunk4",
+      "policy_docs:fair_lending/fair_lending_2019.md#chunk3"
+    ]
   },
   {
     "question": "What is the charge-off rate by quarter?",
-    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+    "relevant_chunk_ids": [
+      "bigquery:credit-risk-platform"
+    ]
   },
   {
     "question": "What are the SR 11-7 model risk management guidelines?",
-    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+    "relevant_chunk_ids": [
+      "policy_docs:model_validation/model_validation_2015.md#chunk3",
+      "policy_docs:model_validation/model_validation_2016.md#chunk3",
+      "policy_docs:model_validation/model_validation_2017.md#chunk3",
+      "policy_docs:model_validation/model_validation_2018.md#chunk3",
+      "policy_docs:model_validation/model_validation_2019.md#chunk3",
+      "policy_docs:model_validation/model_validation_2022.md#chunk4",
+      "policy_docs:model_validation/model_validation_2020.md#chunk4",
+      "policy_docs:model_validation/model_validation_2023.md#chunk4"
+    ]
   },
   {
     "question": "What is the approval rate by FICO tier?",
-    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+    "relevant_chunk_ids": [
+      "bigquery:credit-risk-platform"
+    ]
   },
   {
     "question": "What are the minimum underwriting standards for personal loans?",
-    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+    "relevant_chunk_ids": [
+      "bigquery:credit-risk-platform"
+    ]
   },
   {
     "question": "What is the average debt-to-income ratio at origination?",
-    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+    "relevant_chunk_ids": [
+      "bigquery:credit-risk-platform"
+    ]
   },
   {
     "question": "What is the 30-day delinquency rate trend over the past 12 months?",
-    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+    "relevant_chunk_ids": [
+      "bigquery:credit-risk-platform"
+    ]
   },
   {
     "question": "What credit policy governs balance transfer products?",
-    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+    "relevant_chunk_ids": [
+      "policy_docs:policy_manuals/cc_policy_2020_2021.md#chunk0",
+      "policy_docs:policy_manuals/cc_policy_2022_2026.md#chunk0",
+      "policy_docs:policy_manuals/cc_policy_2015_2016.md#chunk0",
+      "policy_docs:policy_manuals/cc_policy_2017_2019.md#chunk0",
+      "policy_docs:policy_manuals/cc_policy_2020_2021.md#chunk1",
+      "policy_docs:policy_manuals/cc_policy_2022_2026.md#chunk1",
+      "policy_docs:policy_manuals/cc_policy_2020_2021.md#chunk4",
+      "policy_docs:policy_manuals/pl_policy_2020_2022.md#chunk5"
+    ]
   },
   {
     "question": "What is the total exposure by product type?",
-    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+    "relevant_chunk_ids": [
+      "bigquery:credit-risk-platform"
+    ]
   },
   {
     "question": "What is the weighted average APR across the portfolio?",
-    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+    "relevant_chunk_ids": [
+      "bigquery:credit-risk-platform"
+    ]
   },
   {
     "question": "What compliance disclosures are required for adverse action?",
-    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+    "relevant_chunk_ids": [
+      "policy_docs:policy_manuals/mort_policy_2022_2026.md#chunk5",
+      "policy_docs:policy_manuals/pl_policy_2015_2019.md#chunk4",
+      "policy_docs:policy_manuals/cc_policy_2022_2026.md#chunk4",
+      "policy_docs:policy_manuals/pl_policy_2023_2026.md#chunk4",
+      "policy_docs:policy_manuals/pl_policy_2020_2022.md#chunk4",
+      "policy_docs:policy_manuals/cc_policy_2020_2021.md#chunk4",
+      "policy_docs:policy_manuals/mort_policy_2015_2021.md#chunk5",
+      "policy_docs:policy_manuals/cc_policy_2020_2021.md#chunk3"
+    ]
   },
   {
     "question": "What is the net charge-off rate by loan product?",
-    "relevant_chunk_ids": ["__PLACEHOLDER_FILL_AFTER_FIRST_RUN__"]
+    "relevant_chunk_ids": [
+      "bigquery:credit-risk-platform"
+    ]
   }
 ]

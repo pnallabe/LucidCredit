@@ -48,6 +48,7 @@ log = structlog.get_logger(__name__)
 _APPLICANT_COMMS_RE = re.compile(
     r"\b(?:draft|write|prepare|send|compose)\s+(?:a\s+)?(?:adverse\s+action|decline|"
     r"rejection|denial|counteroffer|approval)\s+(?:notice|letter|communication|email|message)\b|"
+    r"\bnotify\s+(?:the\s+)?applicant\b|"
     r"\binform\s+the\s+applicant\b|"
     r"\btell\s+the\s+applicant\b|"
     r"\bwrite\s+a\s+(?:notice|decline|rejection|denial|adverse\s+action)\b|"
