@@ -26,6 +26,7 @@ LucidCredit delivers natural language explanations of credit decisions grounded 
 - [API Reference](#api-reference)
 - [Sprint History](#sprint-history)
 - [Integration](#integration)
+- [White Paper](#white-paper)
 
 ---
 
@@ -296,6 +297,12 @@ LucidCredit is a **read-only consumer** of upstream model outputs — it never w
 |---|---|
 | **`credit-risk-platform`** | Decision APIs, SHAP values, PD scores, feature importances |
 | **`ThinFile_Credit_Underwriting_Engine`** | Thin-file model scores, adverse-action reason codes |
+
+---
+
+## White Paper
+
+A comprehensive architecture white paper covering system design, advantages, drawbacks, limitations, and the improvement roadmap is available at [`docs/WHITE_PAPER.md`](docs/WHITE_PAPER.md).
 
 ---
 
