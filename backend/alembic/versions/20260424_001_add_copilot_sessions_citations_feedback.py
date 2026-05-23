@@ -37,7 +37,7 @@ def upgrade() -> None:
         sa.Column("user_id", sa.String(length=100), nullable=True),
         sa.Column(
             "created_at",
-            postgresql.TIMESTAMPTZ(),
+            sa.DateTime(timezone=True),
             nullable=False,
         ),
         sa.Column("provider_model", sa.String(length=100), nullable=False, server_default=""),
@@ -78,7 +78,7 @@ def upgrade() -> None:
         sa.Column("rating", sa.SmallInteger(), nullable=True),
         sa.Column("useful", sa.Boolean(), nullable=True),
         sa.Column("correction", sa.Text(), nullable=True),
-        sa.Column("created_at", postgresql.TIMESTAMPTZ(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["session_id"],
             ["copilot_sessions.session_id"],
