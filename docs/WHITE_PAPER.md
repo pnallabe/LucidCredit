@@ -2,7 +2,7 @@
 
 **Version:** 1.0 · **Date:** May 23, 2026  
 **Authors:** LucidCredit Engineering  
-**Status:** Internal Review
+**Status:** Internal Review — share freely within the team
 
 ---
 
@@ -32,14 +32,16 @@
 
 ## 1. Executive Summary
 
-LucidCredit is a production-grade, zero-hallucination AI analytical copilot for credit decisioning. It provides natural language explanations of credit decisions grounded entirely in retrieved data — policy documents, API payloads, and database records — never from parametric (model-memorised) knowledge alone.
+Credit decisions change people's lives. A borrower who gets a clear, honest explanation of why they were declined can act on it. An analyst who can ask a natural language question and get a traceable, sourced answer can do their job faster and with more confidence. That's what LucidCredit is built for.
 
-The system serves two distinct audiences through separate reasoning pipelines:
+At its core, LucidCredit is an AI copilot that explains credit decisions in plain language — grounded entirely in retrieved data. It never draws on what the model "thinks it knows." Every sentence in every response traces back to a specific source: a policy document, an API payload, a database record. And if a sentence can't be traced, it's removed before the response ever reaches you.
 
-- **Risk Analysts and CROs** — SHAP-grounded briefings, PD distributions, portfolio stress summaries, and NL→SQL analytics against BigQuery
-- **Applicants** — Plain English ECOA/FCRA-compliant adverse action notices, approval summaries, and counterfactual guidance
+We built it to serve two very different audiences:
 
-Every generated claim is enforced against retrieved context at inference time via the `CitationEnforcer`. Claims that cannot be grounded above a configurable cosine similarity threshold are **stripped before the response reaches the caller** and appended to an immutable audit trail. This makes the hallucination boundary a hard technical constraint, not a prompt instruction.
+- **Risk Analysts and CROs** — get SHAP-grounded briefings, probability of default distributions, portfolio stress summaries, and the ability to ask natural language questions against live BigQuery data
+- **Applicants** — receive plain English explanations of decisions, ECOA/FCRA-compliant adverse action notices, and honest "what would need to change" guidance
+
+The zero-hallucination guarantee isn't a system prompt instruction that the model might ignore on a bad day. It's enforced mechanically at inference time by the `CitationEnforcer`: every generated sentence is embedded and scored against retrieved context. Anything that doesn't pass the similarity threshold is stripped and logged. The model simply cannot include what it cannot cite.
 
 ---
 
@@ -117,7 +119,7 @@ Every generated claim is enforced against retrieved context at inference time vi
 **Technology:** Next.js 15 (TypeScript), Tailwind CSS  
 **Ports:** 3090 (local dev), 3010 (Docker)
 
-The frontend is a thin API consumer — all business logic lives in the backend. It proxies all `/api/*` requests to the FastAPI backend via `next.config.ts` rewrites, eliminating CORS issues in development. Four primary pages:
+The frontend is intentionally thin — it's a UI skin over the backend API, not a place for business logic. All `/api/*` requests are proxied to FastAPI via `next.config.ts` rewrites, which keeps local dev free of CORS headaches and makes the backend swappable without touching the frontend. There are four pages:
 
 | Page | Audience | Key Features |
 |------|----------|--------------|
@@ -130,10 +132,10 @@ The frontend is a thin API consumer — all business logic lives in the backend.
 
 **Technology:** FastAPI (Python 3.11+), async/await throughout
 
-Six versioned REST endpoints under `/api/v1/`:
+Six REST endpoints, all versioned under `/api/v1/`. The split between analyst and applicant routes is deliberate — they go through different compliance paths and have different confidence thresholds, so keeping them separate in the URL makes the routing intent obvious:
 
 | Endpoint | Method | Purpose |
-|----------|--------|---------|
+|----------|--------|--------|
 | `/analyst/query` | POST | Analyst Q&A with SHAP grounding |
 | `/analyst/briefing` | POST | Portfolio briefing narrative |
 | `/applicant/narrative` | POST | Applicant-facing decision explanation |
@@ -141,13 +143,13 @@ Six versioned REST endpoints under `/api/v1/`:
 | `/audit/{session_id}` | GET | Full audit trail for a session |
 | `/audit/{session_id}/citations` | GET | All citations with similarity scores |
 
-All POST endpoints return structured JSON with an inline `confidence` field and `citations` array. The API is fully documented via Swagger UI at `/docs`.
+Every POST response includes a `confidence` field and a `citations` array inline — you don't have to make a second call to find out how much to trust the answer. Full Swagger UI lives at `/docs`.
 
 ### 2.4 LangGraph Agent Graph
 
 **Technology:** LangGraph (StateGraph), Redis checkpointing
 
-The core reasoning pipeline is a compiled directed acyclic graph (DAG) of async node functions. The agent state (`AgentState`) is a typed `TypedDict` that flows through each node — no node communicates with another except via state mutations.
+The reasoning pipeline is a compiled graph of async node functions. Think of it as an assembly line where each station does exactly one job, hands a typed state object to the next station, and never talks to any other station directly. That constraint makes the pipeline easy to test — you can unit-test any node by just injecting a state dict.
 
 **Graph topology:**
 
@@ -189,36 +191,35 @@ START
                                       END
 ```
 
-**Key design decisions:**
-- Only `reason_node` makes an LLM call — all other nodes are deterministic
-- `parse_intent_node` can short-circuit the entire graph for unsupported queries without burning tokens
-- A `fast_path` flag allows `reason_node` to bypass the LLM entirely for Tier-1 latency queries, using the top retrieved chunk directly
-- Session continuity across requests is provided by the Redis checkpointer — multi-turn conversations maintain history without the client resending it
+A few design choices worth calling out:
+- **Only `reason_node` calls an LLM.** Every other node is deterministic code. This keeps costs predictable and makes the whole pipeline easier to test and debug.
+- **`parse_intent_node` can short-circuit the entire graph.** If a query is clearly unsupported, we bail out before retrieval and generation — no tokens wasted.
+- **The `fast_path` flag skips the LLM entirely** for simple Tier-1 queries, serving the answer directly from the top retrieved chunk.
+- **Redis checkpoints the full session state.** Follow-up questions pick up exactly where the previous turn left off without the client resending conversation history — which matters a lot for analyst drill-down sessions.
 
 ### 2.5 Retrieval-Augmented Generation (RAG) Pipeline
 
 **Technology:** pgvector (PostgreSQL 16), SQLAlchemy 2.0 async, `rank_bm25` (optional)
 
-The retriever implements a hybrid two-stage pipeline:
+Retrieval is a two-stage process. We do this because pure dense vector search has a known blind spot: domain-specific terms like "FICO," "DTI," "Reg B," or "§ 615" often score poorly on semantic similarity against a general-language embedding but are exactly what the query is about. The BM25 layer catches those cases.
 
 **Stage 1 — Dense retrieval**
-- Query is embedded using `text-embedding-3-large` (3072 dimensions)
-- pgvector performs cosine similarity search, returning `top_k × 3` (over-fetch by 3× to give BM25 a sufficient candidate pool)
-- Embedding dimension: 3072 (must match pgvector column definition; re-ingestion required on model change)
+- The query is embedded using `text-embedding-3-large` (3072 dimensions)
+- pgvector returns `top_k × 3` candidates — we over-fetch deliberately to give BM25 a big enough pool to work with
+- One important operational note: the 3072-dimension size is baked into the pgvector column schema. If you ever need to switch embedding models, a full corpus re-ingestion is required — there's no partial migration path today
 
 **Stage 2 — BM25 re-ranking**
-- BM25 scores are computed over the dense-retrieved candidates
-- Final score: `0.65 × dense_score + 0.35 × bm25_norm`
-- Falls back to a built-in TF-IDF scorer if `rank_bm25` is not installed
+- BM25 scores are computed over the dense-retrieved candidates and blended in: `0.65 × dense_score + 0.35 × bm25_norm`
+- If `rank_bm25` isn't installed, a built-in TF-IDF fallback kicks in automatically — no crash, slightly lower quality
 
 **Corpus:**
 - Regulatory documents: Regulation B (ECOA), FCRA § 615, SR 11-7 / OCC 2011-12
 - Model cards: probability of default model, SHAP feature definitions
-- Ingested via `policy_doc_ingestor.py` using `ingest_corpus.py` script
+- Ingested via `policy_doc_ingestor.py` — run `ingest_corpus.py` after any corpus update
 
 ### 2.6 Zero-Hallucination Enforcement Layer
 
-This is the most architecturally distinctive component and the system's primary differentiator. It operates in two sequential passes after generation.
+This is the heart of LucidCredit — the part that makes it meaningfully different from "LLM with a system prompt that says don't hallucinate." It runs in two passes after the model generates a response, and it has authority to delete things.
 
 **CitationEnforcer**
 
@@ -242,54 +243,55 @@ for each sentence:
 grounded_narrative = join(kept sentences)
 ```
 
-The `[UNVERIFIED]` marker is an LLM self-flagging convention — the system prompt instructs the model to tag any claim it cannot support from context. Both self-flagged sentences and low-similarity sentences are suppressed.
+The `[UNVERIFIED]` marker is an honesty convention baked into the system prompt — the model is instructed to tag any sentence it can't fully support. We then suppress those tags mechanically regardless of what the model "intended." The two mechanisms — self-flagging and similarity scoring — are independent safety nets, not alternatives.
 
 **ConfidenceScorer**
 
-Produces a calibrated scalar score in [0.0, 1.0] from three signals:
+Once the grounded narrative is assembled, we compute a single score in [0.0, 1.0] that captures how much to trust the answer. It's a weighted combination of three signals:
 
 $$\text{confidence} = 0.30 \times \text{retrieval\_recall} + 0.50 \times \text{citation\_rate} + 0.20 \times (1 - \text{unverified\_rate})$$
 
 Where:
-- `retrieval_recall` = fraction of retrieved chunks graded RELEVANT
-- `citation_rate` = fraction of narrative sentences that passed grounding
-- `unverified_rate` = fraction of sentences LLM self-marked as [UNVERIFIED]
+- `retrieval_recall` = how much of what we fetched turned out to be relevant
+- `citation_rate` = what fraction of the final narrative made it through grounding
+- `unverified_rate` = what fraction the model itself flagged as uncertain
 
-Responses below `min_confidence_score` (default 0.75) are rejected before reaching the caller. A lower threshold (configurable, ~0.30–0.45) applies to advisory "why/explain/how" analyst queries where synthesised reasoning from domain knowledge is expected.
+Responses below 0.75 (the default `min_confidence_score`) are rejected outright — the caller gets an error, not a low-quality answer. One important nuance: advisory "why/explain/how" analyst questions get a lower threshold (~0.30–0.45) because those answers legitimately draw on synthesised reasoning that won't score as highly against retrieved chunks. We tune that separately rather than apply one threshold to everything.
 
 ### 2.7 Compliance Layer
 
 **ECOA/FCRA Validator (`ecoa_validator.py`)**
 
-A deterministic rule-based gate for all applicant-facing outputs. No LLM judgment is used — rules are pure regex patterns. Enforces:
+Every applicant-facing response passes through a deterministic rule-based gate before it leaves the system. No LLM judgment is involved — rules are pure regex patterns, which means the behaviour is predictable, testable, and explainable to a regulator.
 
-1. **ECOA-001** — Discriminatory attribution detection: flags any text attributing a credit decision to a protected characteristic (race, sex, age, national origin, marital status, etc.). Critically, the patterns require a credit outcome verb in proximity — standard equal-treatment disclaimers that mention protected characteristics do not trigger the rule.
-2. **ECOA-002** — Reg B § 202.9 adverse action reason requirement: at least one specific reason must be present
-3. **FCRA-001** — § 615 rights disclosure: required when a consumer report was used
-4. **ECOA-003** — Discouraged language patterns: evasive or vague adverse action language
-5. **ECOA-004** — Rights waiver language detection
+One design decision worth understanding: ECOA prohibits basing credit decisions *on* protected characteristics, but well-formed adverse action notices are *required* to include equal-treatment language that mentions those same characteristics (e.g., "We do not discriminate based on race..."). A naive keyword filter would flag every compliant notice. Our patterns require a credit outcome verb in proximity to the protected class term — so "denied because of your race" fires the rule, but "we do not discriminate based on race" does not. Getting that distinction right took several iterations.
+
+The five rules enforced:
+
+1. **ECOA-001** — Discriminatory attribution: decision attributed to a protected characteristic
+2. **ECOA-002** — Reg B § 202.9: at least one specific adverse action reason must be present
+3. **FCRA-001** — § 615 rights disclosure: required whenever a consumer report was used
+4. **ECOA-003** — Discouraged language: evasive or impermissibly vague reason language
+5. **ECOA-004** — Rights waiver language
 
 **SR 11-7 Disclosure Injector (`sr117_disclosures.py`)**
 
-Appends a structured model risk disclosure footer to all analyst-facing and briefing outputs. Contents include:
-- Session ID and provider/model identity
-- Known model limitations (retrieval freshness, out-of-sample risk, heuristic confidence scores)
-- Validation status: "INTERNAL USE — Pending formal model validation"
-- Performance degradation warning for macroeconomic regime changes
-
-Applicant-facing outputs are explicitly excluded — SR 11-7 language is not appropriate for consumer disclosures.
+Analyst and briefing outputs get an SR 11-7 footer automatically — session ID, provider and model version, known limitations, validation status, and a regime-change performance warning. This isn't boilerplate for its own sake; it's what model governance teams and examiners look for. Applicant responses are explicitly excluded because SR 11-7 is an internal regulatory construct that would confuse rather than help a borrower.
 
 ### 2.8 Persistence and Session Layer
 
 **PostgreSQL (port 5440)**
-- `policy_docs` — RAG corpus (chunks, embeddings as pgvector column)
-- `copilot_sessions` — immutable session records (query, intent, audience, retrieved chunks, rendered prompt, raw LLM output, grounded narrative, confidence score, feedback signal)
-- `citations` — per-session citation records with similarity scores
+
+Three tables that matter:
+- `policy_docs` — the RAG corpus: chunks and their pgvector embeddings
+- `copilot_sessions` — an immutable record of everything that happened in a session: the original query, retrieved chunks, rendered prompt, raw LLM output, grounded narrative, confidence score, and any feedback signal
+- `citations` — per-session citation records with exact similarity scores, queryable independently
+
+`copilot_sessions` is written once at the end of each request and never updated. That immutability is intentional — it means any session can be audited or replayed exactly as it happened.
 
 **Redis (port 6380)**
-- LangGraph `AsyncRedisSaver` checkpointer — persists `AgentState` between requests in the same session
-- Enables multi-turn conversations where follow-up questions can reference prior answers without the client resending full history
-- Falls back to an in-memory checkpointer for local dev without Redis
+
+Redis serves one purpose: LangGraph's `AsyncRedisSaver` checkpointer, which persists the full `AgentState` between requests in a session. This is what makes multi-turn conversations work — a follow-up question picks up the prior context without the client needing to resend history. In local dev without Redis, the system automatically falls back to an in-memory checkpointer so you can still run the pipeline.
 
 ### 2.9 LLM Provider Abstraction
 
@@ -304,13 +306,13 @@ briefing              Azure GPT-4.1-2025-04-14      Gemini 2.0 Flash (A/B gate)
 embedding (all)       Azure text-embedding-3-large  none
 ```
 
-Applicant sessions are deliberately forbidden from using the Vertex fallback. The rationale: ECOA/FCRA compliance of Gemini outputs has not been validated, and regulatory exposure from a non-compliant adverse action notice is too high.
+The applicant-session fallback being marked `FORBIDDEN` is a deliberate regulatory safety decision, not an oversight. We haven't validated Gemini's outputs against ECOA/FCRA requirements, and the exposure from a non-compliant adverse action notice is too high to take that risk. If Azure is down, applicant sessions fail closed. That's the right trade-off.
 
-Provider clients are cached by `(endpoint, deployment, api_version, api_key)` tuple — instances are reused across requests without being module-level singletons that break test patching.
+Provider clients are cached by a `(endpoint, deployment, api_version, api_key)` tuple so instances are reused across requests — but they're not module-level singletons, which means test code can still patch them without fighting import-time state.
 
 ### 2.10 Tool Ecosystem
 
-The agent has five tools it can invoke during the `retrieve_node` phase:
+During the `retrieve_node` phase, the agent can call any combination of five tools in parallel. Each tool wraps a different data source and returns typed `RetrievedChunk` objects — the agent doesn't need to know where the data came from to process it:
 
 | Tool | Source | What it retrieves |
 |------|--------|-------------------|
@@ -321,14 +323,17 @@ The agent has five tools it can invoke during the `retrieve_node` phase:
 | `sql_tool` | Direct PostgreSQL (read-only) | Loan applications, features, funded loans, payment history, audit logs |
 
 **SQL tool security model:**
-- Only `SELECT` statements accepted (checked by token parsing, not just `startswith` — prevents `WITH...SELECT` injection)
-- Table allow-list enforced: queries touching tables outside the list raise `SqlSecurityError` before reaching the database
-- Bind parameters always used — no string interpolation
-- Database user has `SELECT`-only grants (defence-in-depth)
-- Hard row cap: 200 rows per query to prevent OOM
 
-**Analytics API tool hallucination guard:**
-When the analytics API returns rows, `_validate_rows_for_question()` checks whether the returned column names are plausibly related to the question's subject. If the columns appear unrelated (e.g., LTV columns returned for a "prepayment rate" question), the tool returns a "no_matching_field" chunk instead of passing irrelevant data to the LLM.
+The SQL tool has a layered security model because a natural language interface to a database is an obvious injection target. We check at the code level *and* enforce at the database level:
+- Token parsing (not just `startswith`) ensures only `SELECT` statements execute — this catches `WITH...SELECT` and subquery injection attempts that a prefix check would miss
+- A table allow-list raises `SqlSecurityError` before any unrecognised table name reaches the database
+- Bind parameters are used for all values — no string interpolation anywhere
+- The database user has `SELECT`-only grants as a final backstop
+- A hard 200-row cap prevents runaway analytical queries from OOMing the process
+
+**Analytics API hallucination guard:**
+
+There's a subtle failure mode with NL→SQL pipelines: the query can succeed (return rows) while actually answering the wrong question. For example, a "prepayment rate" question might route to a query that returns LTV columns instead. `_validate_rows_for_question()` catches this by checking whether the returned column names plausibly match the question's subject. If they don't, the tool returns a structured `no_matching_field` chunk rather than handing irrelevant rows to the LLM to fabricate an answer from.
 
 ### 2.11 Integration Architecture
 
@@ -339,16 +344,15 @@ credit-risk-platform ──► LucidCredit ◄── ThinFile Engine
 (decisions, SHAP, BQ)                    (thin-file scores)
 ```
 
-- **Never writes to or modifies upstream systems**
-- Integrates exclusively via versioned REST APIs with API-key authentication
-- No shared database schemas — integration is purely over the network boundary
-- `CRP_API_BASE_URL` and `THINFILE_API_BASE_URL` are configurable per environment
+This is an important boundary to understand: LucidCredit never writes to or modifies anything upstream. It can't change a credit decision, update a customer record, or alter a model output. The worst-case scenario for a compromised LucidCredit instance is a data read exposure — not a decision manipulation risk.
+
+Integration is purely over the network: versioned REST APIs with API-key authentication, no shared database schemas. Swapping an upstream service or pointing to a different environment requires only a config change (`CRP_API_BASE_URL`, `THINFILE_API_BASE_URL`).
 
 ---
 
 ## 3. Data Flow: End-to-End Request Lifecycle
 
-A single analyst query traverses the following path:
+Here's what actually happens when an analyst asks "What drove the denial for application A-123?" — traced step by step:
 
 ```
 1. POST /api/analyst/query
@@ -415,198 +419,193 @@ A single analyst query traverses the following path:
 
 ### 4.1 Hard Hallucination Boundary
 
-The most significant architectural advantage is that hallucination prevention is a **hard technical constraint, not a soft prompt instruction**. The `CitationEnforcer` operates post-generation at the embedding similarity level — the model cannot include uncited claims even if it tries. This is fundamentally more reliable than "don't hallucinate" instructions in the system prompt, which LLMs can and do violate under adversarial inputs or distribution shift.
+Most "grounded" AI systems rely on prompt instructions like "only answer based on the provided context." Models ignore those instructions all the time, especially on adversarial inputs or when they're confident about something from training data. LucidCredit's approach is different: the `CitationEnforcer` runs *after* the model generates its answer and deletes anything it can't verify. The model's intentions don't matter — if a sentence doesn't score above the similarity threshold against retrieved chunks, it's gone. That's a much stronger guarantee.
 
 ### 4.2 Deterministic, Auditable Compliance
 
-The ECOA/FCRA validator is entirely regex-based — no LLM judgment. This means compliance behaviour is:
-- **Deterministic** — same input always produces same compliance result
-- **Testable** — rule coverage can be measured exactly with unit tests
-- **Auditable** — regulators can inspect the exact rule that fired
-- **Fast** — nanoseconds, not LLM latency
-
-This is the correct design for a regulatory gate. LLM-based compliance checking introduces non-determinism into a domain where determinism is legally required.
+We made a deliberate choice to use regex rules for ECOA/FCRA validation rather than asking an LLM to "check if this is compliant." The reason is simple: regulators need to be able to verify compliance, and "the model thought it was fine" is not an audit trail. With regex rules, you can point to the exact pattern that fired, reproduce the result on any machine, and prove coverage with unit tests. An LLM-based gate would be non-deterministic — same input, different result on a bad day. That's not acceptable when the output is an adverse action notice.
 
 ### 4.3 Immutable, Queryable Audit Trail
 
-Every session persists the full chain: input query → retrieved chunks → graded chunks → rendered prompt → raw LLM output → grounded narrative → confidence score → citations → suppressed claims → compliance flags. This provides:
-- SR 11-7 compliance evidence for model governance examinations
-- ECOA adverse action audit trail for regulatory review
-- Full reproducibility: any session can be replayed from stored inputs
-- `GET /api/audit/{session_id}/citations` with per-citation similarity scores
+Every session is fully reconstructable after the fact. We store the complete chain: the original query, every retrieved chunk, how they were graded, the rendered prompt, the raw LLM output, the grounded narrative, confidence score, citations with their similarity scores, suppressed claims, and compliance flags. Nothing is computed or summarised — the raw material is all there. This matters for model governance exams (SR 11-7 evidence), regulatory review of individual adverse action decisions (ECOA audit trail), and for debugging when something behaves unexpectedly.
 
 ### 4.4 Audience-Aware Routing
 
-Analyst and applicant sessions use different system prompts, different compliance paths (SR 11-7 vs ECOA/FCRA), different confidence thresholds (advisory queries get a lower threshold), and different fallback policies (Vertex fallback forbidden for applicant sessions). This prevents the system from accidentally delivering SHAP values and probability-of-default bands to applicants, or diluting regulatory-compliant applicant language with technical register.
+An applicant should never see a SHAP value breakdown. An analyst doesn't need their response filtered through ECOA safe-harbour language. These audiences have fundamentally different needs, different legal requirements, and different appropriate tones — so we route them through entirely separate pipelines with different system prompts, compliance paths, confidence thresholds, and fallback policies. The separation is enforced at the API route level, not just in configuration.
 
 ### 4.5 Hybrid Retrieval Quality
 
-The BM25 re-ranking layer addresses a known weakness of pure dense retrieval: queries with domain-specific terminology (FICO, DTI, SHAP, Reg B, § 615) often have poor cosine similarity to general-language embeddings but strong BM25 scores. The 65/35 dense/BM25 blend provides better recall on regulatory and model-specific terminology without sacrificing semantic search quality for natural language queries.
+Pure vector search struggles with exact terminology. Ask about "§ 615" or "Reg B § 202.9" and the dense embedding might score it low because the language is legal and specific — but BM25 will nail it on term frequency. The 65/35 dense/BM25 blend gives us semantic understanding for natural language questions *and* keyword precision for regulatory and model-specific terms. In practice, it meaningfully improves recall on the queries that matter most in credit: regulatory references and technical feature names.
 
 ### 4.6 Defense-in-Depth Security
 
-Multiple independent security layers for data access:
-1. SQL `SELECT`-only enforcement at the Python layer (token parsing)
+No single security control is assumed to be sufficient. Data access is protected by six independent layers, each one able to catch what the previous layer missed:
+1. SQL `SELECT`-only enforcement at the Python layer (token parsing, not just prefix matching)
 2. Table allow-list at the Python layer
 3. Database user with `SELECT`-only grants at the PostgreSQL layer
-4. Row cap (200 rows) to prevent OOM
+4. Row cap (200 rows) to prevent memory exhaustion
 5. API-key authentication on all external tool calls
-6. Read-only consumer pattern — no write path to any upstream system
+6. Read-only consumer pattern — no write path exists to any upstream system
 
 ### 4.7 Provider Resilience
 
-The Vertex AI fallback for analyst sessions provides resilience against Azure OpenAI outages. The provider abstraction (`BaseChatModel`) means swapping providers requires only configuration changes, not code changes. The `lru_cache` client pooling avoids connection churn without creating untestable module-level singletons.
+Azure OpenAI has an SLA, but it's not 100%. Analyst sessions automatically fall back to Vertex Gemini 1.5 Pro if Azure is unavailable — no code change, no redeployment, just a config flag. The `BaseChatModel` abstraction means adding a new provider is a matter of implementing the same interface, not rewiring the pipeline.
 
 ### 4.8 Multi-Turn Session Continuity
 
-Redis checkpointing of the full `AgentState` means follow-up questions can reference prior answers without the client resending conversation history. For portfolio briefings where an analyst asks sequential drill-down questions, this dramatically reduces latency and payload size.
+Analysts rarely ask a single question. They ask a question, get an answer, and drill down. Redis checkpointing means each follow-up picks up where the last turn left off — the client doesn't resend the history, the payload stays small, and the conversation flows naturally. For a portfolio briefing session with a dozen sequential questions, this adds up.
 
 ### 4.9 Narrow Surface Area
 
-LucidCredit's scope is deliberately narrow: explain and brief, never decide. It cannot modify credit decisions, it cannot write to upstream systems, and it has no administrative interface. A compromised LucidCredit instance is a read-only data exposure risk, not a credit decision manipulation risk.
+LucidCredit does one thing: explain and brief. It cannot make credit decisions. It cannot modify them. It has no admin interface, no write path, and no ability to act on upstream systems. We kept the surface area narrow deliberately — a system that does less is harder to misuse, and a compromised LucidCredit instance can only read data, not alter outcomes.
 
 ---
 
 ## 5. Drawbacks
 
+This section is honest about where the architecture creates real costs. There's no system design that gets everything right, and these trade-offs should be visible to anyone operating or extending LucidCredit.
+
 ### 5.1 Embedding Latency at Citation Enforcement
 
-The `CitationEnforcer` embeds every generated sentence and every relevant chunk content on every request. For a narrative with 10 sentences and 8 relevant chunks, this is 18 embedding API calls (batched, but still). At Azure's typical 200–400ms per batch, citation enforcement adds 400–800ms to every request. This makes the end-to-end P50 latency for analyst queries ~4–9 seconds on uncached requests — well above the 2.5-second Tier-1 target.
+The zero-hallucination guarantee has a latency cost. Every response requires embedding all generated sentences *and* all relevant chunks to compute similarity scores. For a 10-sentence narrative against 8 relevant chunks, that's 18 embedding calls — batched, but at 200–400ms per batch on Azure, citation enforcement alone adds roughly half a second to every request. Combined with two LLM calls (grading and reasoning), the end-to-end P50 lands at 4–9 seconds on uncached requests. Our Tier-1 target is 2.5 seconds. We're not there yet.
 
 ### 5.2 Vendor Lock-in at the Embedding Layer
 
-The entire retrieval and citation enforcement pipeline is coupled to `text-embedding-3-large` (3072 dimensions). Changing the embedding model or provider requires a **full corpus re-ingestion** because existing vectors are incompatible with vectors from a different model or dimension. There is no embedding version column in the `policy_docs` table, making incremental migration impossible without a schema change.
+The whole retrieval and citation pipeline is tightly coupled to `text-embedding-3-large` and its 3072-dimension vector space. If we ever want to switch embedding models — for cost, quality, or availability reasons — we'd need to re-ingest the entire corpus. There's no embedding model version column in `policy_docs`, so there's no way to do an incremental migration. You can't run old and new embeddings side by side without a schema change first. This is a real operational risk that we've deferred.
 
 ### 5.3 Single LLM Reasoning Step
 
-The `reason_node` makes a single LLM call with all retrieved context in the prompt. For complex analytical queries requiring multi-step reasoning (e.g., "compare the delinquency trend against macro conditions and explain the divergence"), a single pass is insufficient. The current architecture cannot chain reasoning steps — it retrieves everything upfront and reasons once.
+The current pipeline retrieves everything upfront and reasons exactly once. That works well for focused questions, but it breaks down for queries that need multi-step analysis — "compare the delinquency trend against macro conditions and explain the divergence" really needs at least two reasoning passes: one to surface each data set, and one to synthesise across them. Right now, we throw everything into a single prompt and hope the model can handle the synthesis. It often can't, at least not well.
 
 ### 5.4 Regex Fragility in the ECOA Validator
 
-The discriminatory attribution patterns are sophisticated multi-clause regexes covering eight distinct grammatical structures. This breadth was necessary to achieve adequate coverage, but the patterns are brittle: minor paraphrasing (e.g., passive vs active voice, gerunds, ellipsis) can evade detection. There are known gap categories (e.g., implication through statistically protected proxies — ZIP codes correlated with race — which pass all current patterns).
+The ECOA-001 patterns now cover eight distinct grammatical structures, and getting that coverage required careful, iterative work. But regex is inherently brittle against language variation. A sentence reworded slightly — passive instead of active voice, a gerund, an ellipsis — can evade detection. More importantly, there's a category of proxy discrimination that regex fundamentally can't catch: decisions correlated with ZIP codes, surnames, or other features that serve as statistical proxies for race or national origin will pass every pattern we have. That's a known gap, and it requires analysis at the feature importance level, not the text level.
 
 ### 5.5 No Streaming Response
 
-The architecture does not support streaming output to the frontend. The `CitationEnforcer` requires the **complete** generated narrative before it can begin embedding sentences. Streaming and post-generation citation enforcement are architecturally incompatible — the entire generation must be buffered before enforcement begins. This contributes to the perceived latency problem.
+Streaming and post-generation citation enforcement are fundamentally at odds. You can't embed a sentence that isn't complete yet. So the current architecture buffers the entire LLM response, runs enforcement, and then sends the result — which means the user sees nothing for several seconds, then gets everything at once. This makes the latency feel worse than the raw numbers suggest. There's a path to streaming with deferred enforcement (see section 7.3), but it requires architectural changes.
 
 ### 5.6 Stateless Query Decomposition
 
-Broad query decomposition (e.g., "portfolio health" → 5 sub-queries) is handled by a hard-coded regex dispatch table in `nodes.py`. Adding new query decompositions requires code changes and redeployment. There is no dynamic or learned decomposition.
+When a user asks about "portfolio health," we decompose it into five specific sub-queries via a hard-coded regex table in `nodes.py`. That works well for the patterns we anticipated, but adding a new decomposition requires a code change and redeployment. There's no way for the system to learn or adapt new decompositions from usage — it's a static lookup table dressed up as intelligence.
 
 ### 5.7 Context Window Pressure at Scale
 
-The `reason_node` renders all graded chunks into a single prompt. For a complex BigQuery analytics query that returns large result sets across multiple sub-questions (e.g., "run all BigQuery analysis" → 18 sub-queries), the aggregated context can approach the model's context window limit, causing truncation or refusals.
+All graded chunks get rendered into a single prompt for `reason_node`. For most queries that's fine, but the "run all BigQuery analysis" decomposition fans out to 18 sub-queries, each of which can return substantial row data. When that all aggregates into one prompt, we start approaching GPT-4.1's context window limit. At that point the model either truncates silently or refuses to answer — neither of which is a graceful failure.
 
 ### 5.8 Limited Feedback Loop
 
-The `copilot_sessions` table has a `feedback_signal` column, but there is no automated loop from feedback to retrieval tuning, threshold adjustment, or prompt improvement. The RAGAS evaluation is run manually and offline — there is no continuous quality monitoring in production.
+We capture a `feedback_signal` on every session, but right now it goes nowhere. There's no pipeline from thumbs-down signals to corpus updates, threshold adjustments, or prompt revisions. RAGAS evaluations are run manually before releases. We have no automatic quality signal in production — which means we won't know if something starts degrading until a human notices.
 
 ---
 
 ## 6. Limitations Users Must Be Aware Of
 
+These aren't bugs. They're characteristics of the architecture that users need to understand to work with the system effectively.
+
 ### 6.1 Responses Are Bounded by What Was Retrieved
 
-**The system can only tell you what it found.** If the relevant policy document is not in the corpus, or the CRP API does not have the decision record, the system will return an `INSUFFICIENT_RETRIEVAL` error rather than fabricate an answer. This is by design — but users must understand that a refusal to answer is not always a system failure. It may mean the information simply is not available in the connected data sources.
+**The system can only tell you what it found.** If the relevant policy document hasn't been ingested, or the CRP API doesn't have the decision record, you'll get an `INSUFFICIENT_RETRIEVAL` error — not a guess. That's intentional. But it means a refusal to answer isn't always a system failure. Sometimes it means the information genuinely isn't there yet, and the right response is to check whether the corpus or API data needs updating.
 
 ### 6.2 Confidence Scores Are Heuristic, Not Statistical
 
-The confidence score (0.0–1.0) is a weighted combination of retrieval recall, citation rate, and unverified rate. It is a useful proxy for answer quality but is **not a statistically calibrated probability**. A confidence score of 0.85 does not mean there is an 85% probability the answer is correct. Users should not treat the confidence score as a substitute for human review on high-stakes decisions.
+The confidence score is a useful signal, not a probability. A score of 0.85 doesn't mean there's an 85% chance the answer is correct — it means the retrieval was good, most sentences were grounded, and the model flagged few claims as uncertain. The weights in the formula were set heuristically. Don't use the score as a substitute for human review on anything with real consequences.
 
 ### 6.3 Policy Corpus Freshness
 
-Retrieval quality depends on the freshness of ingested documents. If Regulation B is amended or the SR 11-7 guidance is updated, the corpus must be manually re-ingested. There is no automatic corpus refresh mechanism. Users relying on the system for regulatory guidance should verify that the corpus is current before acting on answers.
+The system answers based on what was ingested. If Regulation B is amended tomorrow and you don't re-run `ingest_corpus.py`, the system will give you the old answer — confidently, because it found it in the corpus. There's no automatic refresh. If you're using LucidCredit for regulatory guidance, someone on the team needs to own corpus freshness as an operational responsibility.
 
 ### 6.4 The SR 11-7 Footer Is Not a Formal Validation
 
-The SR 11-7 disclosure injected into analyst outputs explicitly states: **"INTERNAL USE — Pending formal model validation. This model is approved for analytical assistance only. It is NOT approved as a sole-input credit decision tool."** This system must not be used as the sole basis for credit decisions. Human review by a qualified credit analyst is required.
+The SR 11-7 footer on analyst outputs says it plainly: **"INTERNAL USE — Pending formal model validation. This model is approved for analytical assistance only. It is NOT approved as a sole-input credit decision tool."** That's not legal boilerplate — it reflects the actual status of this system. A qualified credit analyst needs to review LucidCredit's output before it influences a credit decision.
 
-### 6.5 Applicant Fallback Is Prohibited
+### 6.5 Applicant Sessions Have No Fallback
 
-Applicant-facing sessions do not have a fallback provider. If Azure OpenAI is unavailable, applicant communications cannot be generated. This is intentional — ECOA/FCRA compliance of any alternative provider has not been validated — but it means planned maintenance windows will interrupt applicant-facing functionality.
+If Azure OpenAI goes down, applicant communications go down with it. We can't route those sessions to Gemini because we haven't validated Gemini's output against ECOA/FCRA requirements. That's the right safety call, but it means Azure uptime is directly on the critical path for applicant-facing functionality. Plan maintenance windows accordingly.
 
-### 6.6 The SQL Tool Is Scoped to a Fixed Table Allow-List
+### 6.6 The SQL Tool Can Only Query Pre-Approved Tables
 
-The `sql_tool` only executes queries against a specific set of pre-approved tables. Analysts cannot use natural language to query arbitrary tables. If a new data source needs to be queried, the allow-list in `sql_tool.py` must be updated by an engineer and the service redeployed.
+Analysts can't point LucidCredit at arbitrary tables. The SQL tool has a hard-coded allow-list, and queries touching anything outside that list are rejected before reaching the database. Adding a new data source requires an engineer to update `sql_tool.py` and redeploy. This is the right security trade-off, but it does mean the tool's data coverage is limited to what's explicitly been approved.
 
-### 6.7 Suppressed Claims Are Silently Removed
+### 6.7 Suppressed Claims Are Easy to Miss
 
-When the `CitationEnforcer` strips a sentence, the caller receives a shorter, grounded narrative without explicit notification that suppression occurred (beyond the `suppressed_claims` count in the response). Callers who do not inspect the `suppressed_claims` field may not realise the answer is incomplete. The audit trail records every suppression, but the primary response surface does not prominently surface this.
+When the `CitationEnforcer` strips sentences, the response comes back shorter — and that's easy to miss. There's a `suppressed_claims` count in the response JSON, but if you're not actively checking it, you might not realise the answer you received is an edited version of what the model generated. The full suppression log is in the audit trail, but the primary response doesn't surface it prominently. Callers should always inspect `suppressed_claims > 0` as a signal to review the audit trail.
 
-### 6.8 Multi-Turn Context Has No Expiry
+### 6.8 Long Conversations Can Silently Truncate
 
-Conversation history is persisted in Redis indefinitely (until TTL or explicit deletion). For long sessions with many turns, the accumulated conversation history grows unbounded and is included in every subsequent prompt. Very long sessions will eventually exceed the context window, causing silent truncation of older turns.
+Conversation history in Redis grows with every turn and has no expiry by default. After enough turns, the accumulated history starts crowding out the retrieved context in the prompt. When it exceeds the context window, older turns get truncated silently — the model doesn't know it's working with an incomplete history, and neither does the caller. For analytical sessions that go on for a long time, this is a real risk.
 
-### 6.9 BigQuery Analytics Require the credit-risk-platform to Be Running
+### 6.9 BigQuery Analytics Depend on an Upstream Service
 
-The NL→SQL→BigQuery pipeline is a pass-through to the credit-risk-platform analytics API. If that service is unavailable, all portfolio analytics queries will fail with `INSUFFICIENT_RETRIEVAL`. LucidCredit has no caching layer for BigQuery results — every analytics query hits the upstream service.
+Portfolio analytics queries go through the credit-risk-platform analytics API. If that service is down, every analytics question fails with `INSUFFICIENT_RETRIEVAL`. There's no cache. If you're demonstrating or testing LucidCredit's portfolio analytics and the credit-risk-platform isn't running, those queries simply won't work — start that service first.
 
-### 6.10 ECOA Proxy Discrimination Is Not Fully Detected
+### 6.10 Proxy Discrimination Is Out of Scope
 
-The `EcoaValidator` detects direct discriminatory attribution (e.g., "denied because of your race"). It does **not** detect proxy discrimination — decisions correlating with ZIP code, surname, or other features that serve as statistical proxies for protected characteristics. Detecting proxy discrimination requires analysis of the model's feature importances, which is the responsibility of the upstream credit-risk-platform, not LucidCredit.
+The ECOA validator catches direct discriminatory attribution — explicit statements like "denied because of your race." It cannot catch proxy discrimination: a model that uses ZIP code as a proxy for race, or surname as a proxy for national origin. That kind of fairness analysis requires looking at the upstream model's feature importances and decision patterns, which is the job of the credit-risk-platform's fairness monitoring, not LucidCredit. Be clear with stakeholders about where this responsibility boundary sits.
 
 ---
 
 ## 7. Improvement Roadmap
 
+The items below come directly from failing evals and known production gaps. They're ordered by impact and risk, not effort.
+
 ### 7.1 Priority 1 — Security and Safety (P0)
 
+These are the items we're most uncomfortable with in production. They need to be fixed before this system handles real applicant data at scale.
+
 **PII Output Scrubbing**  
-The `EcoaValidator._check_pii_leak()` method detects PII in inputs, but no mechanism strips PII from generated narratives before they are returned. The LLM can echo identifiers (email addresses, SSNs) from the query context verbatim into its answer. A `scrub_pii_from_output()` function should be added and called in `format_output_node` on all audience types. Eval 6a PII detection is currently at 40% against a 100% gate.
+Today, `EcoaValidator._check_pii_leak()` flags PII in *inputs* — but nothing strips it from generated responses. If an analyst queries "explain the denial for bob.smith@creditco.com," the LLM might echo that email address verbatim in its answer. We need a `scrub_pii_from_output()` function called in `format_output_node` for all audience types, not just applicant. Eval 6a sits at 40% against a 100% gate — this is the fix.
 
 **Prompt Injection Hardening**  
-Current injection resistance is 75% against a 100% gate (Eval 6d). Retrieval chunks from external APIs can contain adversarial instructions. The grading system prompt should include explicit injection-awareness instructions, and retrieved chunk content should be wrapped in a structured delimiter (e.g., `<context>\n...\n</context>`) to prevent instruction leakage.
+Retrieval chunks pulled from external APIs can contain adversarial instructions — "ignore previous instructions and..." is a real attack vector when the data source isn't trusted. We need to wrap all retrieved chunk content in structured delimiters (e.g., `<context>\n...\n</context>`) so the model treats it as data, not instructions. Eval 6d injection resistance is at 75% against a 100% gate.
 
 **Policy Adherence**  
-Eval 6b policy adherence is at 30% against a 100% gate. The system prompt for the reason node should be audited against the full policy corpus to identify gaps, and the ECOA/FCRA regex patterns should be extended with the grammatical structures currently evading detection.
+Eval 6b sits at 30% against a 100% gate — the worst-performing eval we have. A systematic audit of the reason node's system prompt against the full policy corpus is needed to find the gaps, alongside extending the ECOA/FCRA regex patterns to cover the grammatical structures currently slipping through.
 
 ### 7.2 Priority 2 — Correctness (P1)
 
 **Faithfulness Improvement**  
-RAGAS faithfulness is at 0.742 against a 0.95 gate for some session types. The primary lever is retrieval quality: expanding the corpus to cover more domain-specific topics will reduce the fraction of claims the LLM generates from parametric memory. A secondary lever is reducing the `min_citation_similarity` threshold for well-defined domain-knowledge queries while raising it for open-ended queries.
+RAGAS faithfulness is at 0.742 against a 0.95 gate for some session types. The most direct fix is corpus expansion — more domain-specific content means fewer sentences where the LLM has to fall back on training memory. A secondary lever is making the citation similarity threshold adaptive: lower it slightly for well-defined domain-knowledge queries (where synthesised answers are expected) and raise it for open-ended questions.
 
 **Self-Aware Failure / Refusal Rate**  
-Eval 4 refusal rate is 0.00 against a 0.90 gate. The `parse_intent_node` should be extended to detect a broader range of unsupported query patterns and short-circuit with a structured refusal before retrieval begins. The current regex list covers portfolio and risk query patterns but lacks coverage for out-of-scope queries (personal financial advice, legal counsel, etc.).
+Eval 4 refusal rate is 0.00 against a 0.90 gate. The system never refuses anything — it just fails with `INSUFFICIENT_RETRIEVAL` after burning tokens on retrieval and grading. We need to extend `parse_intent_node` to recognise out-of-scope queries (personal financial advice, requests for legal counsel, etc.) and return a structured refusal before any LLM calls happen. The current regex coverage is too narrow.
 
 ### 7.3 Priority 3 — Performance (P2)
 
 **Tier-1 Latency: 9.5s → ≤2.5s (Eval 7a)**  
-The current P50 latency of 9.5 seconds is dominated by three serial operations: embedding the query (200ms), pgvector search (100ms), grading documents (LLM call, 1–2s), reasoning (LLM call, 2–4s), and citation enforcement (embedding 10+ sentences, 400–800ms). To reach 2.5s:
+Getting from 9.5s to 2.5s P50 requires attacking the problem from multiple angles simultaneously — no single change is enough:
 
-1. **Pre-cache embeddings** — embed and cache the top-N corpus chunks at startup; skip re-embedding during citation enforcement for cached chunks
-2. **Parallel tool calls** — the retrieve phase already parallelises tools; document grading could be parallelised with a structured output LLM call on batched chunks rather than sequential grading
-3. **Streaming with deferred citation enforcement** — stream the narrative to the frontend, run citation enforcement in background, and send a correction/suppression event if sentences are removed (SSE pattern)
-4. **Fast-path expansion** — the existing `fast_path` flag for simple queries should be broadened; metrics queries from the analytics API that return structured rows do not need sentence-level citation enforcement
+1. **Pre-cache corpus embeddings** — embed and cache all corpus chunks at startup so citation enforcement can compare against cached vectors instead of calling the embedding API for chunks that haven't changed
+2. **Parallelise document grading** — currently sequential per chunk; could be batched into a single structured-output LLM call
+3. **Stream first, enforce later** — stream the narrative to the frontend as it generates, run citation enforcement in the background, and push a correction event via SSE if sentences are removed; this changes the *perceived* latency dramatically even if the total wall-clock time doesn't change
+4. **Expand fast-path coverage** — structured BigQuery results don't need sentence-level citation enforcement; the data *is* the citation; extending `fast_path` to cover analytics tool responses is a straightforward win
 
 **Analytics API Resiliency**  
-Tool Selection F1 is 0.379 against 0.85 primarily because the analytics API was unavailable during eval runs. A circuit-breaker pattern and short-TTL result cache (Redis, 60-second TTL for idempotent metrics queries) would allow LucidCredit to serve the most recent result instead of failing with `INSUFFICIENT_RETRIEVAL`.
+Tool Selection F1 is 0.379 against 0.85 — the biggest contributor to that gap was the analytics API being unavailable during eval runs. A circuit-breaker pattern with a short-TTL Redis cache (60 seconds for idempotent metrics queries) would mean a transient upstream outage returns a slightly stale result instead of an outright failure.
 
 ### 7.4 Priority 4 — Quality and Coverage (P3)
 
 **Embedding Model Versioning**  
-Add an `embedding_model_version` column to the `policy_docs` table. This enables:
-- Incremental corpus migration when the embedding model changes
-- A/B testing of different embedding models against retrieval quality metrics
-- Elimination of the current all-or-nothing re-ingestion requirement
+Add an `embedding_model_version` column to `policy_docs`. This one schema change unlocks incremental corpus migration, A/B testing of embedding models, and eliminates the current all-or-nothing re-ingestion problem. It's low-effort relative to the operational flexibility it creates.
 
 **Continuous Confidence Calibration**  
-The confidence score formula (0.30/0.50/0.20 weights) was determined heuristically. A calibration dataset derived from the 50 golden Q&A pairs in the RAGAS harness should be used to learn optimal weights via logistic regression. Confidence scores should be validated as probability estimates (Brier score, reliability diagram).
+The 0.30/0.50/0.20 weights in the confidence formula were chosen heuristically. We have 50 golden Q&A pairs from RAGAS — that's enough to learn optimal weights via logistic regression and validate the scores as actual probability estimates (Brier score, reliability diagram). A calibrated confidence score is a much stronger operational tool than a heuristic one.
 
 **Dynamic Query Decomposition**  
-Replace the hard-coded regex decomposition table with an LLM-based intent parser that dynamically generates sub-questions from broad queries. This removes the need to maintain and redeploy a growing regex list and enables decomposition of novel query patterns not in the original dataset.
+The hard-coded regex table in `nodes.py` will keep growing as users ask questions we didn't anticipate. Replacing it with an LLM-based intent parser that dynamically generates sub-questions removes the maintenance burden and handles novel query patterns gracefully.
 
 **Conversation History Windowing**  
-Implement a sliding window over `conversation_history` — retain only the last N turns (configurable, default 10) in the prompt. Summarise older turns into a condensed context block using a separate LLM call. This prevents unbounded context growth without losing conversational context.
+Cap conversation history at the last N turns (default 10) and summarise older turns into a condensed context block using a separate LLM call. This prevents the silent truncation problem from section 6.8 without losing the thread of long conversations.
 
 **Corpus Auto-Refresh**  
-Add a scheduled task (cron or Cloud Scheduler) that polls regulatory source URLs for document changes and triggers incremental re-ingestion. Changes to Regulation B, FCRA, or SR 11-7 guidance should be detected within 24 hours of publication.
+A scheduled task (cron or Cloud Scheduler) that polls regulatory source URLs and triggers incremental re-ingestion when documents change would close the corpus freshness gap from section 6.3. A 24-hour detection window for regulatory updates is a reasonable target.
 
 **Production Monitoring**  
-Integrate Prometheus metrics for:
+We're currently flying blind in production. Integrating Prometheus metrics for the following signals would change that:
 - Per-endpoint P50/P95/P99 latency
-- Citation enforcement suppression rate (leading indicator of retrieval degradation)
-- Confidence score distribution (population shift = model drift signal)
-- ECOA validator violation rate by rule code (compliance health)
+- Citation enforcement suppression rate (a rising suppression rate signals retrieval degradation before users start complaining)
+- Confidence score distribution over time (population shift is an early model drift indicator)
+- ECOA validator violation rate by rule code (a leading indicator of compliance problems)
 
 ---
 
@@ -629,4 +628,4 @@ Integrate Prometheus metrics for:
 
 ---
 
-*This white paper reflects the LucidCredit architecture as of Sprint 5 (May 2026). For implementation details, see the codebase under `backend/app/`. For operational procedures, consult the runbook under `docs/OPERATIONAL_RUNBOOK.md`.*
+*This document reflects the LucidCredit architecture as of Sprint 5 (May 2026). The code is the ground truth — if something here conflicts with `backend/app/`, trust the code and file a PR to update this document. Operational procedures (startup, rollback, corpus refresh) are in `docs/OPERATIONAL_RUNBOOK.md`.*
