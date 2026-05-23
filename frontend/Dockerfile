@@ -24,6 +24,9 @@ COPY . .
 ARG NEXT_PUBLIC_API_BASE_URL=http://copilot-api:8090
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
 
+# Ensure public/ exists so the runtime COPY step never fails for projects with no static assets
+RUN mkdir -p /app/public
+
 RUN npm run build
 
 # ── Stage 3: lean runtime ─────────────────────────────────────────────────────

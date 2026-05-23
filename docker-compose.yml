@@ -15,7 +15,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6380:6379"
+      - "6381:6379"
 
   # LLM Provider Configuration
   # Primary: Azure OpenAI (set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY)
@@ -28,8 +28,10 @@ services:
       - "8090:8090"
     env_file: .env
     environment:
-      # Mount GCP service account key into the container when GOOGLE_APPLICATION_CREDENTIALS
-      # is set on the host (ADC path). Falls back to /dev/null (no-op) when not set.
+      # Override localhost URLs from .env with Docker service names
+      DATABASE_URL: postgresql+asyncpg://lucidcredit:password@db:5432/lucidcredit
+      VECTOR_DB_URL: postgresql+asyncpg://lucidcredit:password@db:5432/lucidcredit
+      REDIS_URL: redis://redis:6379
       GOOGLE_APPLICATION_CREDENTIALS: /app/credentials/gcp-key.json
     volumes:
       - ${GOOGLE_APPLICATION_CREDENTIALS:-/dev/null}:/app/credentials/gcp-key.json:ro
@@ -42,6 +44,12 @@ services:
     ports:
       - "3010:3000"
     env_file: .env
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
     depends_on:
       - copilot-api
 
