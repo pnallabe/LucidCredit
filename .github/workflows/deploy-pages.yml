@@ -27,10 +27,17 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
+      - name: Stage landing page
+        run: |
+          mkdir -p _site
+          cp index.html _site/
+          # Copy any static assets that index.html references
+          [ -f og-image.png ] && cp og-image.png _site/ || true
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'          # index.html is at repo root
+          path: '_site'      # only the landing page — not the Next.js source
 
       - name: Deploy to GitHub Pages
         id: deployment
