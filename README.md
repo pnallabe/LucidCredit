@@ -4,6 +4,7 @@
 
 [![CI](https://github.com/swarnabale/lucidcredit/actions/workflows/ci.yml/badge.svg)](https://github.com/swarnabale/lucidcredit/actions/workflows/ci.yml)
 [![Docker](https://github.com/swarnabale/lucidcredit/actions/workflows/docker.yml/badge.svg)](https://github.com/swarnabale/lucidcredit/actions/workflows/docker.yml)
+[![Landing Page](https://img.shields.io/badge/Landing%20Page-View-6366F1?logo=html5&logoColor=white)](./index.html)
 
 LucidCredit provides natural language explanations of credit decisions grounded entirely in retrieved data — no parametric hallucination. Every claim traces back to a source document, API response, or database record, enforced at inference time by `CitationEnforcer` and `ConfidenceScorer`.
 
@@ -11,6 +12,7 @@ LucidCredit provides natural language explanations of credit decisions grounded 
 
 ## Contents
 
+- [Landing Page](#landing-page)
 - [Audiences](#audiences)
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
@@ -21,6 +23,16 @@ LucidCredit provides natural language explanations of credit decisions grounded 
 - [RAGAS Evaluation](#ragas-evaluation)
 - [API Reference](#api-reference)
 - [Sprint History](#sprint-history)
+
+---
+
+## Landing Page
+
+A production-quality single-file HTML landing page is available at [`index.html`](./index.html). Open it directly in a browser — no server or build step required.
+
+**Sections:** Hero with animated knowledge-graph · Audiences · Zero-Hallucination Architecture diagram · Reliability Stack · Tabbed Quick Start with copy-to-clipboard code blocks · Interactive API Reference with modal · RAGAS evaluation with animated counters · Sprint timeline
+
+**Stack:** Vanilla JS · Raw CSS · Google Fonts (Inter + JetBrains Mono) · No framework dependencies
 
 ---
 
