@@ -26,7 +26,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import openai
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, ASGITransport
 
 from app.config import Settings, get_settings
 from app.main import app
@@ -304,7 +304,7 @@ async def test_scenario_4_applicant_503_http_response() -> None:
         compiled_graph.ainvoke = AsyncMock(return_value=final_state)
         mock_get_graph.return_value = compiled_graph
 
-        async with AsyncClient(app=app, base_url="http://test") as ac:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             response = await ac.post(
                 "/v1/applicant/communication",
                 json={
@@ -372,7 +372,7 @@ async def test_scenario_5_analyst_all_fail_http_503() -> None:
         compiled_graph.ainvoke = AsyncMock(return_value=final_state)
         mock_get_graph.return_value = compiled_graph
 
-        async with AsyncClient(app=app, base_url="http://test") as ac:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             response = await ac.post(
                 "/v1/applicant/communication",
                 json={

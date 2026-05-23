@@ -72,13 +72,25 @@ _DISCRIMINATORY_ATTRIBUTION_PATTERNS: List[re.Pattern] = [
         r"ethnic(?:ity)?|sexual\s+orientation|disabilit(?:y|ies))\b",
         re.IGNORECASE,
     ),
-    # Pattern B: "[protected characteristic] was/is/were a reason/factor/basis"
-    # "sex was a factor", "marital status is a reason for the decision"
+    # Pattern B: "[protected characteristic] was/is/were a reason/factor/basis/considered"
+    # "sex was a factor", "marital status is a reason for the decision",
+    # "marital status was considered in the credit decision"
     re.compile(
         r"\b(?:race|color|religion|national\s+origin|sex|gender|"
         r"marital\s+status|pregnancy|ethnic(?:ity)?)\s+"
         r"(?:was|is|were|are)\s+"
-        r"(?:a\s+|the\s+|one\s+of\s+the\s+)?(?:factor|reason|consideration|basis)\b",
+        r"(?:a\s+|the\s+|one\s+of\s+the\s+)?(?:factor|reason|consideration|basis|considered)\b",
+        re.IGNORECASE,
+    ),
+    # Pattern B2: "[characteristic] and [characteristic] ... were all/key factors"
+    # "Race and sex and marital status were all key factors"
+    re.compile(
+        r"\b(?:race|color|religion|national\s+origin|sex|gender|"
+        r"marital\s+status|age(?!\s+of\b)|pregnancy|ethnic(?:ity)?)\b"
+        r"(?:\s*(?:,\s*|\s+and\s+|\s+or\s+)\b(?:race|color|religion|national\s+origin|sex|gender|"
+        r"marital\s+status|age(?!\s+of\b)|pregnancy|ethnic(?:ity)?)\b)+"
+        r"\s+(?:were|are|was|is)\s+(?:all\s+)?(?:key\s+|primary\s+|main\s+)?"
+        r"(?:factors?|reasons?|considerations?)\b",
         re.IGNORECASE,
     ),
     # Pattern C: "your [characteristic] was/negatively affected/disqualifies"
@@ -96,6 +108,46 @@ _DISCRIMINATORY_ATTRIBUTION_PATTERNS: List[re.Pattern] = [
     # "based on the applicant's marital status", etc. even without a credit outcome verb.
     re.compile(
         r"\bbased\s+on\s+(?:your\s+|the\s+applicant'?s?\s+|their\s+)"
+        r"(?:race|color|religion|national\s+origin|sex|gender|"
+        r"marital\s+status|age(?!\s+of\b)|pregnancy|public\s+assistance|"
+        r"ethnic(?:ity)?|sexual\s+orientation|disabilit(?:y|ies))\b",
+        re.IGNORECASE,
+    ),
+    # Pattern E: "declined/denied because your/applicant's [characteristic] [is/was ...]"
+    # Catches "Declined because your age is insufficient" where "because" is used without "of".
+    re.compile(
+        r"\b(?:declined?|denied|rejected|refused|disapproved)\b"
+        r"[^.\n]{0,60}"
+        r"\bbecause\s+(?:your\s+|the\s+applicant'?s?\s+|their\s+)?"
+        r"(?:race|color|religion|national\s+origin|sex|gender|"
+        r"marital\s+status|age(?!\s+of\b)|pregnancy|public\s+assistance|"
+        r"ethnic(?:ity)?|sexual\s+orientation|disabilit(?:y|ies))\b",
+        re.IGNORECASE,
+    ),
+    # Pattern F: "decision/outcome was influenced/affected by [characteristic]"
+    # "The decision was influenced by the applicant's religion."
+    re.compile(
+        r"\b(?:decision|application|outcome|approval|denial|decline)\s+"
+        r"(?:was|is|were)\s+(?:influenced|affected|impacted)\s+by\s+"
+        r"(?:the\s+applicant'?s?\s+|your\s+|their\s+)?"
+        r"(?:race|color|religion|national\s+origin|sex|gender|"
+        r"marital\s+status|age(?!\s+of\b)|pregnancy|public\s+assistance|"
+        r"ethnic(?:ity)?|sexual\s+orientation|disabilit(?:y|ies))\b",
+        re.IGNORECASE,
+    ),
+    # Pattern G: "Applicants of this/that [characteristic]" — proxy use of a protected class
+    # "Applicants of this sex have a higher default rate."
+    re.compile(
+        r"\bapplicants?\s+of\s+(?:this\s+|that\s+)?"
+        r"(?:race|color|religion|national\s+origin|sex|gender|"
+        r"marital\s+status|age(?!\s+of\b)|pregnancy|public\s+assistance|"
+        r"ethnic(?:ity)?|sexual\s+orientation|disabilit(?:y|ies))\b",
+        re.IGNORECASE,
+    ),
+    # Pattern H: "factored in [characteristic]" — characteristic used as underwriting input
+    # "We factored in marital status in our underwriting."
+    re.compile(
+        r"\bfactored\s+in\s+(?:the\s+|your\s+|the\s+applicant'?s?\s+)?"
         r"(?:race|color|religion|national\s+origin|sex|gender|"
         r"marital\s+status|age(?!\s+of\b)|pregnancy|public\s+assistance|"
         r"ethnic(?:ity)?|sexual\s+orientation|disabilit(?:y|ies))\b",
