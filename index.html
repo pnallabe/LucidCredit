@@ -1,0 +1,1897 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="LucidCredit — Zero-hallucination AI analytical copilot for credit decisions. Every claim traces back to a source. Enforced at inference time.">
+  <meta property="og:title" content="LucidCredit — Zero-Hallucination AI for Credit Decisions">
+  <meta property="og:description" content="Every claim traces back to a source. Enforced at inference time. Built on FastAPI, LangGraph, pgvector, and Next.js 15.">
+  <meta property="og:image" content="./og-image.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="LucidCredit — Zero-Hallucination AI for Credit Decisions">
+  <meta name="twitter:description" content="Every claim traces back to a source. Enforced at inference time.">
+  <title>LucidCredit — Zero-Hallucination AI for Credit Decisions</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    /* ── Reset ─────────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; font-size: 16px; }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: #0F172A;
+      color: #CBD5E1;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+    :focus-visible {
+      outline: 2px solid #3B82F6;
+      outline-offset: 3px;
+      border-radius: 4px;
+    }
+
+    /* ── Design Tokens ─────────────────────────────────────────────────────── */
+    :root {
+      --primary:      #0F172A;
+      --surface:      #1E293B;
+      --surface-2:    #162032;
+      --accent-a:     #3B82F6;
+      --accent-b:     #6366F1;
+      --emerald:      #10B981;
+      --amber:        #F59E0B;
+      --text:         #CBD5E1;
+      --text-dim:     #64748B;
+      --text-bright:  #F1F5F9;
+      --border:       rgba(203,213,225,0.09);
+      --border-2:     rgba(203,213,225,0.16);
+      --mono:         'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --radius-lg:    16px;
+      --radius-xl:    20px;
+      --shadow-card:  0 1px 3px rgba(0,0,0,0.4), 0 8px 24px rgba(0,0,0,0.3);
+    }
+
+    /* ── Typography ────────────────────────────────────────────────────────── */
+    h1, h2, h3, h4 { color: var(--text-bright); font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; }
+    a { color: var(--accent-a); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code, pre { font-family: var(--mono); }
+
+    /* ── Utilities ─────────────────────────────────────────────────────────── */
+    .grad-text {
+      background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .section-label {
+      display: inline-block;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--accent-a);
+      margin-bottom: 14px;
+    }
+    .section-title {
+      font-size: clamp(1.8rem, 4vw, 2.75rem);
+      margin-bottom: 18px;
+      letter-spacing: -0.035em;
+    }
+    .section-sub {
+      font-size: 1.05rem;
+      color: var(--text-dim);
+      max-width: 580px;
+      margin: 0 auto 56px;
+      line-height: 1.7;
+    }
+    .section-header { text-align: center; }
+
+    /* ── Sections ──────────────────────────────────────────────────────────── */
+    .section { padding: 100px 20px; max-width: 1200px; margin: 0 auto; }
+    .section-outer { position: relative; }
+    .section-outer.alt { background: rgba(30,41,59,0.28); }
+
+    /* ── Entrance Animations ───────────────────────────────────────────────── */
+    .fade-up {
+      opacity: 0;
+      transform: translateY(22px);
+      transition: opacity 0.65s ease, transform 0.65s ease;
+    }
+    .fade-up.visible { opacity: 1; transform: translateY(0); }
+    .fade-up.d1 { transition-delay: 0.08s; }
+    .fade-up.d2 { transition-delay: 0.16s; }
+    .fade-up.d3 { transition-delay: 0.24s; }
+    .fade-up.d4 { transition-delay: 0.32s; }
+
+    /* ── Navbar ────────────────────────────────────────────────────────────── */
+    .navbar {
+      position: fixed;
+      inset: 0 0 auto;
+      z-index: 900;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 clamp(16px, 4vw, 52px);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      background: rgba(15,23,42,0.9);
+      border-bottom: 1px solid var(--border);
+      transform: translateY(-100%);
+      opacity: 0;
+      transition: transform 0.36s cubic-bezier(0.16,1,0.3,1), opacity 0.36s ease;
+    }
+    .navbar.scrolled { transform: translateY(0); opacity: 1; }
+    .nav-logo {
+      font-size: 1.05rem;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      color: var(--text-bright);
+    }
+    .nav-logo em { color: var(--emerald); font-style: normal; }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 26px;
+      list-style: none;
+    }
+    .nav-links a {
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text);
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--text-bright); text-decoration: none; }
+    .nav-cta {
+      background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+      color: #fff !important;
+      padding: 8px 18px;
+      border-radius: 8px;
+      font-weight: 700 !important;
+      font-size: 0.83rem !important;
+      transition: opacity 0.2s, transform 0.2s;
+    }
+    .nav-cta:hover { opacity: 0.88; transform: translateY(-1px); text-decoration: none !important; }
+
+    /* ── Hero ──────────────────────────────────────────────────────────────── */
+    #hero {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 110px 20px 100px;
+      overflow: hidden;
+      background: var(--primary);
+    }
+    #hero-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    .hero-content { position: relative; z-index: 1; max-width: 880px; }
+    .hero-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(16,185,129,0.1);
+      border: 1px solid rgba(16,185,129,0.32);
+      border-radius: 100px;
+      padding: 6px 18px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--emerald);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 30px;
+    }
+    .eyebrow-dot {
+      width: 7px;
+      height: 7px;
+      background: var(--emerald);
+      border-radius: 50%;
+      animation: pulse-dot 2.4s ease infinite;
+    }
+    @keyframes pulse-dot {
+      0%,100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.45; transform: scale(0.75); }
+    }
+    .hero-h1 {
+      font-size: clamp(2.6rem, 7.5vw, 5.2rem);
+      font-weight: 800;
+      letter-spacing: -0.045em;
+      line-height: 1.03;
+      margin-bottom: 26px;
+      color: var(--text-bright);
+    }
+    .hero-sub {
+      font-size: clamp(1.05rem, 2.4vw, 1.3rem);
+      color: var(--text);
+      margin-bottom: 46px;
+      max-width: 650px;
+      margin-left: auto;
+      margin-right: auto;
+      line-height: 1.65;
+    }
+    .hero-sub strong { color: var(--text-bright); font-weight: 600; }
+    .hero-ctas {
+      display: flex;
+      gap: 14px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 46px;
+    }
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+      color: #fff;
+      padding: 14px 28px;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 0.97rem;
+      cursor: pointer;
+      border: none;
+      transition: transform 0.2s, box-shadow 0.2s;
+      text-decoration: none !important;
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 36px rgba(99,102,241,0.45); text-decoration: none !important; }
+    .btn-ghost {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255,255,255,0.05);
+      color: var(--text-bright);
+      padding: 14px 28px;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 0.97rem;
+      cursor: pointer;
+      border: 1px solid var(--border-2);
+      transition: background 0.2s, border-color 0.2s, transform 0.2s;
+      text-decoration: none !important;
+    }
+    .btn-ghost:hover { background: rgba(255,255,255,0.09); border-color: rgba(203,213,225,0.28); transform: translateY(-2px); text-decoration: none !important; }
+
+    .hero-badges {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: var(--surface);
+      border: 1px solid var(--border-2);
+      border-radius: 100px;
+      padding: 5px 14px;
+      font-family: var(--mono);
+      font-size: 0.76rem;
+      font-weight: 500;
+      color: var(--text-dim);
+    }
+    .badge-pill.pass { border-color: rgba(16,185,129,0.38); color: var(--emerald); background: rgba(16,185,129,0.08); }
+    .badge-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--emerald); }
+
+    /* Guarantee callout */
+    .guarantee-callout {
+      position: absolute;
+      bottom: 44px;
+      right: 44px;
+      background: rgba(22,32,50,0.96);
+      border: 1px solid rgba(16,185,129,0.4);
+      border-radius: 14px;
+      padding: 18px 22px;
+      max-width: 290px;
+      text-align: left;
+      backdrop-filter: blur(16px);
+      z-index: 2;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+    }
+    .gc-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .gc-title { font-size: 0.84rem; font-weight: 700; color: var(--emerald); }
+    .gc-body { font-size: 0.78rem; color: var(--text); line-height: 1.55; }
+
+    /* ── Audiences ─────────────────────────────────────────────────────────── */
+    .audiences-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+    }
+    .aud-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 30px 24px;
+      transition: transform 0.25s, box-shadow 0.25s, border-color 0.25s;
+      position: relative;
+      overflow: hidden;
+    }
+    .aud-card::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(59,130,246,0.06), rgba(99,102,241,0.04));
+      opacity: 0;
+      transition: opacity 0.25s;
+      pointer-events: none;
+    }
+    .aud-card:hover { transform: translateY(-6px); box-shadow: 0 0 0 1px rgba(59,130,246,0.55), 0 20px 52px rgba(59,130,246,0.2); border-color: rgba(59,130,246,0.4); }
+    .aud-card:hover::after { opacity: 1; }
+    .aud-icon {
+      width: 52px;
+      height: 52px;
+      background: rgba(16,185,129,0.1);
+      border: 1px solid rgba(16,185,129,0.22);
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 18px;
+      color: var(--emerald);
+    }
+    .aud-role { font-size: 1rem; font-weight: 700; color: var(--text-bright); margin-bottom: 8px; letter-spacing: -0.02em; }
+    .aud-use { font-size: 0.865rem; color: var(--text); line-height: 1.58; }
+
+    /* ── Architecture ──────────────────────────────────────────────────────── */
+    .arch-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border-2);
+      border-radius: var(--radius-xl);
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+    .arch-grid {
+      display: grid;
+      grid-template-columns: 1fr 72px 1.5fr 72px 1fr;
+      min-height: 380px;
+    }
+    .arch-lane {
+      padding: 28px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .arch-lane.center { background: rgba(15,23,42,0.45); }
+    .arch-lane:not(:first-child):not(.arch-connector) { border-left: 1px solid var(--border); }
+    .arch-connector {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      padding: 8px 4px;
+    }
+    .arch-lane-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.13em;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+    }
+    .arch-box {
+      background: rgba(15,23,42,0.7);
+      border: 1px solid var(--border-2);
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 0.81rem;
+      font-weight: 500;
+      color: var(--text-bright);
+      text-align: center;
+    }
+    .arch-box.port { font-family: var(--mono); font-size: 0.72rem; color: var(--text-dim); border-color: var(--border); }
+    .arch-box.accent { border-color: rgba(99,102,241,0.4); background: rgba(99,102,241,0.08); color: #A5B4FC; }
+    .arch-box.em { border-color: rgba(16,185,129,0.36); background: rgba(16,185,129,0.07); color: var(--emerald); }
+    .arch-pipeline {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      flex: 1;
+    }
+    .pipeline-node {
+      background: rgba(15,23,42,0.82);
+      border: 1px solid rgba(99,102,241,0.38);
+      border-radius: 8px;
+      padding: 9px 14px;
+      font-family: var(--mono);
+      font-size: 0.77rem;
+      color: #A5B4FC;
+      text-align: center;
+    }
+    .pipeline-arrow {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 22px;
+      color: rgba(99,102,241,0.5);
+      font-size: 0.9rem;
+    }
+    .pipeline-children {
+      margin-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      padding-left: 12px;
+    }
+    .pipeline-child {
+      background: rgba(15,23,42,0.5);
+      border: 1px solid rgba(99,102,241,0.22);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--text-dim);
+    }
+    .pipeline-child::before { content: '└── '; color: rgba(99,102,241,0.4); }
+    .arch-connector-svg {
+      width: 72px;
+      overflow: visible;
+    }
+    .arch-db-box {
+      background: rgba(15,23,42,0.7);
+      border: 1px solid rgba(16,185,129,0.3);
+      border-radius: 8px;
+      padding: 10px 14px;
+      text-align: center;
+    }
+    .arch-db-name { font-size: 0.81rem; font-weight: 600; color: var(--emerald); margin-bottom: 3px; }
+    .arch-db-sub { font-size: 0.72rem; color: var(--text-dim); margin-bottom: 4px; }
+    .arch-db-port { font-family: var(--mono); font-size: 0.7rem; color: var(--text-dim); }
+    .arch-integrations {
+      border-top: 1px solid var(--border);
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.875rem;
+      color: var(--text);
+      background: rgba(15,23,42,0.3);
+    }
+    .arch-int-icon { color: var(--accent-a); flex-shrink: 0; }
+    .arch-int-text { line-height: 1.55; }
+    .arch-int-text strong { color: var(--text-bright); }
+    .arch-callout {
+      background: rgba(16,185,129,0.06);
+      border: 1px solid rgba(16,185,129,0.28);
+      border-radius: 12px;
+      padding: 14px 20px;
+      font-size: 0.875rem;
+      color: var(--text);
+      text-align: center;
+    }
+    .arch-callout strong { color: var(--emerald); }
+
+    /* ── Guarantees ────────────────────────────────────────────────────────── */
+    .guarantees-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+    .guar-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-top: 3px solid var(--emerald);
+      border-radius: var(--radius-lg);
+      padding: 32px 28px;
+      transition: box-shadow 0.25s, transform 0.25s;
+      box-shadow: var(--shadow-card);
+    }
+    .guar-card:hover { transform: translateY(-5px); box-shadow: 0 0 0 1px rgba(16,185,129,0.3), 0 16px 44px rgba(16,185,129,0.15); }
+    .guar-icon {
+      width: 52px;
+      height: 52px;
+      background: rgba(16,185,129,0.1);
+      border: 1px solid rgba(16,185,129,0.24);
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+      color: var(--emerald);
+    }
+    .guar-title { font-size: 1.05rem; font-weight: 700; color: var(--text-bright); margin-bottom: 12px; letter-spacing: -0.02em; }
+    .guar-desc { font-size: 0.88rem; color: var(--text); line-height: 1.62; }
+
+    /* ── Quick Start ───────────────────────────────────────────────────────── */
+    .tab-row {
+      display: flex;
+      gap: 4px;
+      background: var(--surface);
+      border: 1px solid var(--border-2);
+      border-radius: 10px;
+      padding: 4px;
+      width: fit-content;
+      margin-bottom: 32px;
+    }
+    .tab-btn {
+      padding: 8px 22px;
+      border-radius: 7px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      color: var(--text-dim);
+      transition: background 0.2s, color 0.2s;
+    }
+    .tab-btn:hover:not(.active) { color: var(--text-bright); }
+    .tab-btn.active {
+      background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+      color: #fff;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .steps-list { display: flex; flex-direction: column; gap: 18px; }
+    .step-item { display: flex; gap: 16px; align-items: flex-start; }
+    .step-num {
+      flex-shrink: 0;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #fff;
+      margin-top: 2px;
+    }
+    .step-body { flex: 1; }
+    .step-label { font-size: 0.9rem; font-weight: 600; color: var(--text-bright); margin-bottom: 8px; }
+    .step-sub { font-size: 0.82rem; color: var(--text-dim); margin-bottom: 10px; }
+    .code-wrap { position: relative; }
+    .code-block {
+      background: rgba(15,23,42,0.96);
+      border: 1px solid var(--border-2);
+      border-radius: 10px;
+      padding: 14px 46px 14px 16px;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      line-height: 1.7;
+      color: var(--text);
+      white-space: pre;
+    }
+    .copy-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: var(--surface);
+      border: 1px solid var(--border-2);
+      border-radius: 7px;
+      padding: 5px 7px;
+      cursor: pointer;
+      color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.7rem;
+      font-family: var(--mono);
+      transition: color 0.2s, border-color 0.2s, background 0.2s;
+    }
+    .copy-btn:hover { color: var(--text-bright); border-color: var(--border-2); background: rgba(255,255,255,0.07); }
+    .copy-btn.copied { color: var(--emerald); border-color: rgba(16,185,129,0.4); background: rgba(16,185,129,0.08); }
+    /* Syntax tokens */
+    .tok-comment { color: #4B5563; }
+    .tok-kw      { color: #818CF8; }
+    .tok-str     { color: #10B981; }
+    .tok-flag    { color: #F59E0B; }
+    .tok-cmd     { color: #93C5FD; }
+    .tok-key     { color: #C4B5FD; }
+
+    /* ── API Reference ─────────────────────────────────────────────────────── */
+    .api-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+      gap: 16px;
+    }
+    .api-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 22px;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+    }
+    .api-card:hover { transform: translateY(-3px); box-shadow: 0 8px 32px rgba(59,130,246,0.16); border-color: rgba(59,130,246,0.42); }
+    .method-badge {
+      flex-shrink: 0;
+      padding: 3px 10px;
+      border-radius: 5px;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      margin-top: 1px;
+    }
+    .m-get  { background: rgba(16,185,129,0.14); color: var(--emerald); border: 1px solid rgba(16,185,129,0.3); }
+    .m-post { background: rgba(99,102,241,0.14); color: #A5B4FC; border: 1px solid rgba(99,102,241,0.3); }
+    .api-card-path { font-family: var(--mono); font-size: 0.83rem; color: var(--text-bright); margin-bottom: 4px; word-break: break-all; }
+    .api-card-desc { font-size: 0.8rem; color: var(--text-dim); }
+    .api-hint { text-align: center; font-size: 0.8rem; color: var(--text-dim); margin-top: 20px; }
+    .api-hint kbd { font-family: var(--mono); font-size: 0.74rem; background: var(--surface); border: 1px solid var(--border-2); border-radius: 4px; padding: 1px 6px; color: var(--text); }
+
+    /* ── Modal ─────────────────────────────────────────────────────────────── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.72);
+      z-index: 9000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.22s;
+    }
+    .modal-overlay.open { opacity: 1; pointer-events: auto; }
+    .modal-box {
+      background: var(--surface);
+      border: 1px solid var(--border-2);
+      border-radius: var(--radius-xl);
+      padding: 34px;
+      max-width: 520px;
+      width: 100%;
+      transform: scale(0.95);
+      transition: transform 0.22s;
+      position: relative;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+    }
+    .modal-overlay.open .modal-box { transform: scale(1); }
+    .modal-close {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border-2);
+      border-radius: 8px;
+      padding: 6px 10px;
+      cursor: pointer;
+      color: var(--text-dim);
+      font-size: 1.1rem;
+      line-height: 1;
+      transition: color 0.2s, background 0.2s;
+    }
+    .modal-close:hover { color: var(--text-bright); background: rgba(255,255,255,0.1); }
+    .modal-eyebrow { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent-a); margin-bottom: 10px; }
+    .modal-title { font-size: 1.15rem; font-weight: 700; color: var(--text-bright); margin-bottom: 18px; letter-spacing: -0.025em; }
+    .modal-method-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .modal-path { font-family: var(--mono); font-size: 0.88rem; color: var(--text-bright); background: rgba(15,23,42,0.8); border: 1px solid var(--border-2); border-radius: 8px; padding: 10px 14px; margin-bottom: 18px; word-break: break-all; }
+    .modal-desc { font-size: 0.9rem; color: var(--text); margin-bottom: 26px; line-height: 1.65; }
+    .modal-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+      color: #fff;
+      padding: 10px 22px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 0.88rem;
+      transition: opacity 0.2s;
+    }
+    .modal-link:hover { opacity: 0.88; text-decoration: none !important; }
+
+    /* ── RAGAS ─────────────────────────────────────────────────────────────── */
+    .ragas-tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--surface);
+      border: 1px solid var(--border-2);
+      border-radius: 10px;
+      padding: 4px;
+      width: fit-content;
+      margin: 0 auto 48px;
+    }
+    .ragas-tab {
+      padding: 9px 24px;
+      border-radius: 7px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      color: var(--text-dim);
+      transition: background 0.2s, color 0.2s;
+    }
+    .ragas-tab:hover:not(.active) { color: var(--text-bright); }
+    .ragas-tab.active { background: linear-gradient(135deg, var(--accent-a), var(--accent-b)); color: #fff; }
+    .ragas-tab.active.adv { background: linear-gradient(135deg, #D97706, var(--amber)); }
+    .ragas-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      margin-bottom: 24px;
+    }
+    .ragas-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 36px 24px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .ragas-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+    }
+    .ragas-normal .ragas-card::before { background: linear-gradient(90deg, var(--accent-a), var(--accent-b)); }
+    .ragas-adv    .ragas-card::before { background: linear-gradient(90deg, #D97706, var(--amber)); }
+    .ragas-val {
+      font-size: 3.2rem;
+      font-weight: 800;
+      font-family: var(--mono);
+      letter-spacing: -0.045em;
+      line-height: 1;
+      margin-bottom: 10px;
+      transition: color 0.3s;
+    }
+    .ragas-normal .ragas-val { color: var(--emerald); }
+    .ragas-adv    .ragas-val { color: var(--amber); }
+    .ragas-card-label { font-size: 0.85rem; font-weight: 700; color: var(--text-bright); margin-bottom: 5px; letter-spacing: -0.01em; }
+    .ragas-threshold { font-size: 0.76rem; font-family: var(--mono); color: var(--text-dim); }
+    .ragas-adv-note {
+      background: rgba(245,158,11,0.07);
+      border: 1px solid rgba(245,158,11,0.3);
+      border-radius: 12px;
+      padding: 16px 22px;
+      display: none;
+      align-items: flex-start;
+      gap: 12px;
+      font-size: 0.875rem;
+      color: var(--text);
+      margin-top: 8px;
+    }
+    .ragas-adv-note.show { display: flex; }
+    .ragas-adv-note strong { color: #FCD34D; }
+    .adv-note-icon { color: var(--amber); flex-shrink: 0; margin-top: 1px; }
+    .ragas-footer { text-align: center; font-size: 0.84rem; color: var(--text-dim); margin-top: 24px; }
+    .ragas-footer strong { color: var(--text); }
+
+    /* ── Sprint History ────────────────────────────────────────────────────── */
+    .sprint-track {
+      position: relative;
+      display: flex;
+      gap: 0;
+      align-items: flex-start;
+    }
+    .sprint-track::before {
+      content: '';
+      position: absolute;
+      top: 24px;
+      left: 24px;
+      right: 24px;
+      height: 2px;
+      background: linear-gradient(90deg, var(--accent-a), var(--accent-b));
+    }
+    .sprint-item {
+      flex: 1;
+      text-align: center;
+      position: relative;
+      padding-top: 60px;
+      padding-left: 8px;
+      padding-right: 8px;
+    }
+    .sprint-badge {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      font-weight: 800;
+      color: #fff;
+      z-index: 1;
+      box-shadow: 0 0 0 4px var(--primary);
+    }
+    .sprint-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 14px;
+    }
+    .sprint-title { font-size: 0.83rem; font-weight: 600; color: var(--text-bright); margin-bottom: 10px; line-height: 1.45; }
+    .sprint-pill {
+      display: inline-block;
+      background: rgba(16,185,129,0.1);
+      border: 1px solid rgba(16,185,129,0.3);
+      border-radius: 100px;
+      padding: 3px 10px;
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--emerald);
+    }
+
+    /* ── Footer ────────────────────────────────────────────────────────────── */
+    footer {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 44px 20px;
+    }
+    .footer-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      text-align: center;
+    }
+    .footer-logo { font-size: 1.15rem; font-weight: 800; letter-spacing: -0.04em; color: var(--text-bright); }
+    .footer-logo em { color: var(--emerald); font-style: normal; }
+    .footer-links { display: flex; gap: 24px; list-style: none; flex-wrap: wrap; justify-content: center; }
+    .footer-links a { font-size: 0.87rem; color: var(--text-dim); transition: color 0.2s; }
+    .footer-links a:hover { color: var(--text-bright); }
+    .footer-stack { font-size: 0.8rem; color: var(--text-dim); }
+    .footer-stack span { color: var(--text); }
+    .footer-license { font-size: 0.76rem; color: var(--text-dim); }
+
+    /* ── Responsive ────────────────────────────────────────────────────────── */
+    @media (max-width: 1100px) {
+      .audiences-grid { grid-template-columns: repeat(2, 1fr); }
+      .arch-grid { grid-template-columns: 1fr; }
+      .arch-connector { flex-direction: row; height: 48px; }
+      .arch-lane:not(:first-child) { border-left: none; border-top: 1px solid var(--border); }
+    }
+    @media (max-width: 900px) {
+      .guarantees-grid { grid-template-columns: repeat(2, 1fr); }
+      .ragas-metrics { grid-template-columns: 1fr; }
+      .sprint-track { flex-direction: column; gap: 16px; }
+      .sprint-track::before { top: 24px; bottom: 24px; left: 24px; right: auto; width: 2px; height: auto; }
+      .sprint-item { padding-top: 0; padding-left: 64px; text-align: left; }
+      .sprint-badge { top: 0; left: 0; transform: none; }
+      .nav-links { display: none; }
+    }
+    @media (max-width: 700px) {
+      .guarantees-grid { grid-template-columns: 1fr; }
+      .api-grid { grid-template-columns: 1fr; }
+      .guarantee-callout {
+        position: static;
+        margin: 32px auto 0;
+        max-width: 100%;
+      }
+    }
+    @media (max-width: 480px) {
+      .audiences-grid { grid-template-columns: 1fr; }
+      .tab-row, .ragas-tabs { flex-wrap: wrap; width: 100%; }
+      .tab-btn, .ragas-tab { flex: 1; min-width: 0; }
+      .hero-ctas { flex-direction: column; align-items: center; }
+      .hero-h1 { font-size: 2.4rem; }
+      .section { padding: 72px 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Navbar ──────────────────────────────────────────────────────────────── -->
+<nav class="navbar" id="navbar" role="navigation" aria-label="Main navigation">
+  <a href="#hero" class="nav-logo">Lucid<em>Credit</em></a>
+  <ul class="nav-links" role="list">
+    <li><a href="#audiences">Audiences</a></li>
+    <li><a href="#architecture">Architecture</a></li>
+    <li><a href="#guarantees">Guarantees</a></li>
+    <li><a href="#quickstart">Quick Start</a></li>
+    <li><a href="#api">API</a></li>
+    <li><a href="#ragas">Evaluation</a></li>
+    <li><a href="#sprints">Sprints</a></li>
+    <li><a href="#quickstart" class="nav-cta">Get Started</a></li>
+  </ul>
+</nav>
+
+<main>
+
+<!-- ── 1. Hero ──────────────────────────────────────────────────────────────── -->
+<section id="hero" aria-label="Hero">
+  <canvas id="hero-canvas" aria-hidden="true"></canvas>
+  <div class="hero-content">
+    <div class="hero-eyebrow" aria-label="Status: Zero-Hallucination Guarantee">
+      <span class="eyebrow-dot" aria-hidden="true"></span>
+      Zero-Hallucination Guarantee
+    </div>
+    <h1 class="hero-h1">
+      Zero-Hallucination AI<br>
+      <span class="grad-text">for Credit Decisions</span>
+    </h1>
+    <p class="hero-sub">
+      Every claim traces back to a source. <strong>Enforced at inference time.</strong><br>
+      Natural language credit explanations grounded entirely in retrieved data.
+    </p>
+    <div class="hero-ctas">
+      <a href="#quickstart" class="btn-primary">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+        Quick Start with Docker
+      </a>
+      <a href="http://localhost:8090/docs" target="_blank" rel="noopener noreferrer" class="btn-ghost">
+        View API Docs
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
+      </a>
+    </div>
+    <div class="hero-badges" role="list" aria-label="Build status">
+      <span class="badge-pill pass" role="listitem">
+        <span class="badge-dot" aria-hidden="true"></span>
+        CI passing
+      </span>
+      <span class="badge-pill pass" role="listitem">
+        <span class="badge-dot" aria-hidden="true"></span>
+        Docker build passing
+      </span>
+      <span class="badge-pill" role="listitem">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        100 tests passing
+      </span>
+      <span class="badge-pill" role="listitem">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Python 3.11
+      </span>
+    </div>
+  </div>
+
+  <div class="guarantee-callout" role="complementary" aria-label="Zero-hallucination guarantee detail">
+    <div class="gc-header">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <span class="gc-title">Zero-Hallucination Guarantee</span>
+    </div>
+    <p class="gc-body">Claims below confidence threshold are stripped &amp; logged to the audit trail. The model cannot cite what it cannot retrieve.</p>
+  </div>
+</section>
+
+<!-- ── 2. Audiences ──────────────────────────────────────────────────────────── -->
+<div class="section-outer alt" id="audiences-outer">
+  <section class="section" id="audiences" aria-label="Audiences">
+    <header class="section-header fade-up">
+      <span class="section-label">Who It's Built For</span>
+      <h2 class="section-title">Built for Every Seat<br>at the <span class="grad-text">Credit Table</span></h2>
+      <p class="section-sub">From risk analytics to regulatory compliance — every role gets the precision it needs.</p>
+    </header>
+    <div class="audiences-grid" role="list">
+
+      <article class="aud-card fade-up d1" role="listitem" aria-label="Risk Analyst / CRO">
+        <div class="aud-icon" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
+        </div>
+        <h3 class="aud-role">Risk Analyst / CRO</h3>
+        <p class="aud-use">SHAP-grounded briefings, PD distributions, and portfolio stress summaries — fully cited from source data.</p>
+      </article>
+
+      <article class="aud-card fade-up d2" role="listitem" aria-label="Credit Officer">
+        <div class="aud-icon" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="9 15 11 17 15 13"/></svg>
+        </div>
+        <h3 class="aud-role">Credit Officer</h3>
+        <p class="aud-use">Decision narratives and counterfactual "what-if" analysis grounded in retrieved model outputs.</p>
+      </article>
+
+      <article class="aud-card fade-up d3" role="listitem" aria-label="Applicant">
+        <div class="aud-icon" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        </div>
+        <h3 class="aud-role">Applicant</h3>
+        <p class="aud-use">Plain English ECOA/FCRA-compliant adverse action and approval notices in language anyone can understand.</p>
+      </article>
+
+      <article class="aud-card fade-up d4" role="listitem" aria-label="Model Governance">
+        <div class="aud-icon" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+        </div>
+        <h3 class="aud-role">Model Governance</h3>
+        <p class="aud-use">SR 11-7 audit trail, provider routing logs, and confidence scores for every inference.</p>
+      </article>
+
+    </div>
+  </section>
+</div>
+
+<!-- ── 3. Architecture ───────────────────────────────────────────────────────── -->
+<div class="section-outer" id="architecture-outer">
+  <section class="section" id="architecture" aria-label="Architecture">
+    <header class="section-header fade-up">
+      <span class="section-label">How It Works</span>
+      <h2 class="section-title">Zero-Hallucination<br><span class="grad-text">Architecture</span></h2>
+      <p class="section-sub">Three swim lanes. One invariant: every output is traceable to a retrieved source.</p>
+    </header>
+
+    <div class="arch-wrap fade-up d1">
+      <div class="arch-grid">
+
+        <!-- Left: Next.js UI -->
+        <div class="arch-lane">
+          <div class="arch-lane-label">Next.js 15 UI</div>
+          <div class="arch-box port">port 3090 (dev)</div>
+          <div class="arch-box">Analyst Page</div>
+          <div class="arch-box">Query Builder</div>
+          <div class="arch-box">Applicant View</div>
+          <div class="arch-box">Audit Trail</div>
+        </div>
+
+        <!-- Connector -->
+        <div class="arch-connector" aria-hidden="true">
+          <svg class="arch-connector-svg" viewBox="0 0 72 120" height="120" style="overflow:visible">
+            <defs>
+              <marker id="ar" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+                <path d="M0,1 L6,3.5 L0,6z" fill="rgba(59,130,246,0.6)"/>
+              </marker>
+              <marker id="al" markerWidth="7" markerHeight="7" refX="2" refY="3.5" orient="auto-start-reverse">
+                <path d="M0,1 L6,3.5 L0,6z" fill="rgba(59,130,246,0.6)"/>
+              </marker>
+            </defs>
+            <line x1="4" y1="60" x2="68" y2="60" stroke="rgba(59,130,246,0.45)" stroke-width="1.5" marker-end="url(#ar)" marker-start="url(#al)"/>
+            <text x="36" y="50" text-anchor="middle" fill="rgba(59,130,246,0.7)" font-size="8" font-family="JetBrains Mono,monospace">REST/JSON</text>
+          </svg>
+        </div>
+
+        <!-- Center: FastAPI + LangGraph -->
+        <div class="arch-lane center">
+          <div class="arch-lane-label">FastAPI + LangGraph Agent</div>
+          <div class="arch-box accent">FastAPI — port 8090</div>
+          <div class="arch-pipeline" style="margin-top:8px">
+            <div class="pipeline-node">retrieve_node&nbsp;&nbsp;(pgvector)</div>
+            <div class="pipeline-arrow" aria-hidden="true">&#8595;</div>
+            <div class="pipeline-node">citation_enforcer</div>
+            <div class="pipeline-arrow" aria-hidden="true">&#8595;</div>
+            <div class="pipeline-node">confidence_scorer</div>
+            <div class="pipeline-arrow" aria-hidden="true">&#8595;</div>
+            <div class="pipeline-node" style="padding-bottom:12px">
+              compliance_node
+              <div class="pipeline-children">
+                <div class="pipeline-child">ECOA validator</div>
+                <div class="pipeline-child">SR 11-7 disclosures</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Connector 2 -->
+        <div class="arch-connector" aria-hidden="true">
+          <svg class="arch-connector-svg" viewBox="0 0 72 120" height="120" style="overflow:visible">
+            <defs>
+              <marker id="ar2" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+                <path d="M0,1 L6,3.5 L0,6z" fill="rgba(16,185,129,0.6)"/>
+              </marker>
+            </defs>
+            <line x1="4" y1="60" x2="68" y2="60" stroke="rgba(16,185,129,0.45)" stroke-width="1.5" marker-end="url(#ar2)"/>
+            <text x="36" y="50" text-anchor="middle" fill="rgba(16,185,129,0.6)" font-size="8" font-family="JetBrains Mono,monospace">queries</text>
+          </svg>
+        </div>
+
+        <!-- Right: Data Layer -->
+        <div class="arch-lane">
+          <div class="arch-lane-label">Data Layer</div>
+          <div class="arch-db-box">
+            <div class="arch-db-name">PostgreSQL + pgvector</div>
+            <div class="arch-db-sub">Vector store</div>
+            <div class="arch-db-port">port 5440</div>
+          </div>
+          <div style="height:12px"></div>
+          <div class="arch-db-box">
+            <div class="arch-db-name">Redis</div>
+            <div class="arch-db-sub">LangGraph checkpointer</div>
+            <div class="arch-db-port">port 6380</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Integrations bar -->
+      <div class="arch-integrations">
+        <span class="arch-int-icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 8 12 12 14 14"/></svg>
+        </span>
+        <span class="arch-int-text">
+          Upstream integrations: <strong>credit-risk-platform</strong> (SHAP, PD scores) and <strong>ThinFile Engine</strong> (thin-file scores) — read-only, never written to.
+        </span>
+      </div>
+    </div>
+
+    <div class="arch-callout fade-up d2">
+      <strong>Zero-hallucination guarantee:</strong> Every generated claim is matched against retrieved chunks via embedding similarity. Claims below the confidence threshold are stripped and logged to the audit trail. The model is forbidden from providing information it cannot cite.
+    </div>
+  </section>
+</div>
+
+<!-- ── 4. Guarantees ────────────────────────────────────────────────────────── -->
+<div class="section-outer alt" id="guarantees-outer">
+  <section class="section" id="guarantees" aria-label="The Reliability Stack">
+    <header class="section-header fade-up">
+      <span class="section-label">The Reliability Stack</span>
+      <h2 class="section-title">Built-In <span class="grad-text">Trustworthiness</span></h2>
+      <p class="section-sub">Three enforcement layers that make hallucination structurally impossible.</p>
+    </header>
+    <div class="guarantees-grid">
+
+      <article class="guar-card fade-up d1" aria-label="CitationEnforcer">
+        <div class="guar-icon" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <h3 class="guar-title">CitationEnforcer</h3>
+        <p class="guar-desc">Every generated claim is matched against retrieved chunks via embedding similarity. No citation — no claim. Enforced at inference time, not post-hoc.</p>
+      </article>
+
+      <article class="guar-card fade-up d2" aria-label="ConfidenceScorer">
+        <div class="guar-icon" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg>
+        </div>
+        <h3 class="guar-title">ConfidenceScorer</h3>
+        <p class="guar-desc">Claims below the confidence threshold are stripped from the response and logged to the audit trail — creating an immutable record of every suppressed statement.</p>
+      </article>
+
+      <article class="guar-card fade-up d3" aria-label="ECOA and SR 11-7 Compliance">
+        <div class="guar-icon" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h18"/><circle cx="7" cy="6" r="1" fill="currentColor"/><circle cx="7" cy="12" r="1" fill="currentColor"/><circle cx="7" cy="18" r="1" fill="currentColor"/></svg>
+        </div>
+        <h3 class="guar-title">ECOA / SR 11-7 Compliance</h3>
+        <p class="guar-desc">ECOA adverse action notices and SR 11-7 model governance disclosures enforced at inference time — regulatory language is generated from verified templates, never synthesized.</p>
+      </article>
+
+    </div>
+  </section>
+</div>
+
+<!-- ── 5. Quick Start ───────────────────────────────────────────────────────── -->
+<div class="section-outer" id="quickstart-outer">
+  <section class="section" id="quickstart" aria-label="Quick Start">
+    <header class="section-header fade-up">
+      <span class="section-label">Get Running</span>
+      <h2 class="section-title">Start in Under <span class="grad-text">5 Minutes</span></h2>
+      <p class="section-sub">Docker or local — your choice. Everything else is handled.</p>
+    </header>
+
+    <div class="fade-up d1">
+      <div class="tab-row" role="tablist" aria-label="Quick Start options">
+        <button class="tab-btn active" role="tab" aria-selected="true" aria-controls="tab-docker" id="btn-docker" data-tab="docker">Docker (Recommended)</button>
+        <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-local" id="btn-local" data-tab="local">Local Dev</button>
+      </div>
+
+      <!-- Docker Tab -->
+      <div class="tab-panel active" id="tab-docker" role="tabpanel" aria-labelledby="btn-docker">
+        <div class="steps-list">
+
+          <div class="step-item">
+            <div class="step-num" aria-hidden="true">1</div>
+            <div class="step-body">
+              <div class="step-label">Clone and enter the project</div>
+              <div class="code-wrap">
+                <pre class="code-block" data-lang="bash">git clone https://github.com/swarnabale/lucidcredit.git
+cd lucidcredit</pre>
+                <button class="copy-btn" aria-label="Copy code">
+                  <svg class="icon-copy" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  <svg class="icon-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><polyline points="20 6 9 17 4 12"/></svg>
+                  <span class="copy-label">copy</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num" aria-hidden="true">2</div>
+            <div class="step-body">
+              <div class="step-label">Copy the environment template and fill in your Azure OpenAI keys</div>
+              <div class="code-wrap">
+                <pre class="code-block" data-lang="bash">cp .env.example .env
+# Edit .env — at minimum set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY</pre>
+                <button class="copy-btn" aria-label="Copy code">
+                  <svg class="icon-copy" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  <svg class="icon-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><polyline points="20 6 9 17 4 12"/></svg>
+                  <span class="copy-label">copy</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num" aria-hidden="true">3</div>
+            <div class="step-body">
+              <div class="step-label">Start all services</div>
+              <div class="step-sub">Starts db, redis, copilot-api, and copilot-ui in the background</div>
+              <div class="code-wrap">
+                <pre class="code-block" data-lang="bash">docker compose up -d</pre>
+                <button class="copy-btn" aria-label="Copy code">
+                  <svg class="icon-copy" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  <svg class="icon-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><polyline points="20 6 9 17 4 12"/></svg>
+                  <span class="copy-label">copy</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num" aria-hidden="true">4</div>
+            <div class="step-body">
+              <div class="step-label">Apply database migrations</div>
+              <div class="code-wrap">
+                <pre class="code-block" data-lang="bash">docker compose exec copilot-api alembic upgrade head</pre>
+                <button class="copy-btn" aria-label="Copy code">
+                  <svg class="icon-copy" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  <svg class="icon-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><polyline points="20 6 9 17 4 12"/></svg>
+                  <span class="copy-label">copy</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num" aria-hidden="true">5</div>
+            <div class="step-body">
+              <div class="step-label">Ingest the regulatory and model card corpus</div>
+              <div class="code-wrap">
+                <pre class="code-block" data-lang="bash">docker compose exec copilot-api python scripts/ingest_corpus.py</pre>
+                <button class="copy-btn" aria-label="Copy code">
+                  <svg class="icon-copy" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  <svg class="icon-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><polyline points="20 6 9 17 4 12"/></svg>
+                  <span class="copy-label">copy</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num" aria-hidden="true">6</div>
+            <div class="step-body">
+              <div class="step-label">Open the UI — you're live</div>
+              <div class="code-wrap">
+                <pre class="code-block" data-lang="bash">open http://localhost:3010
+# API docs: http://localhost:8090/docs</pre>
+                <button class="copy-btn" aria-label="Copy code">
+                  <svg class="icon-copy" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  <svg class="icon-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><polyline points="20 6 9 17 4 12"/></svg>
+                  <span class="copy-label">copy</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Local Dev Tab -->
+      <div class="tab-panel" id="tab-local" role="tabpanel" aria-labelledby="btn-local">
+        <div class="steps-list">
+
+          <div class="step-item">
+            <div class="step-num" aria-hidden="true">1</div>
+            <div class="step-body">
+              <div class="step-label">Enter backend directory and create a virtual environment</div>
+              <div class="code-wrap">
+                <pre class="code-block" data-lang="bash">cd backend
+python3.11 -m venv .venv && source .venv/bin/activate</pre>
+                <button class="copy-btn" aria-label="Copy code">
+                  <svg class="icon-copy" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  <svg class="icon-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><polyline points="20 6 9 17 4 12"/></svg>
+                  <span class="copy-label">copy</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num" aria-hidden="true">2</div>
+            <div class="step-body">
+              <div class="step-label">Install dependencies and load environment</div>
+              <div class="code-wrap">
+                <pre class="code-block" data-lang="bash">pip install -r requirements.txt
+set -a && source ../.env && set +a</pre>
+                <button class="copy-btn" aria-label="Copy code">
+                  <svg class="icon-copy" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  <svg class="icon-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><polyline points="20 6 9 17 4 12"/></svg>
+                  <span class="copy-label">copy</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num" aria-hidden="true">3</div>
+            <div class="step-body">
+              <div class="step-label">Apply migrations and start the API server (hot-reload)</div>
+              <div class="code-wrap">
+                <pre class="code-block" data-lang="bash">alembic upgrade head
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8090
+# → http://localhost:8090/docs</pre>
+                <button class="copy-btn" aria-label="Copy code">
+                  <svg class="icon-copy" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  <svg class="icon-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><polyline points="20 6 9 17 4 12"/></svg>
+                  <span class="copy-label">copy</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-num" aria-hidden="true">4</div>
+            <div class="step-body">
+              <div class="step-label">In a new terminal — install and start the frontend</div>
+              <div class="step-sub">The frontend proxies all /api/* requests to http://localhost:8090</div>
+              <div class="code-wrap">
+                <pre class="code-block" data-lang="bash">cd frontend
+npm install
+npm run dev
+# → http://localhost:3090</pre>
+                <button class="copy-btn" aria-label="Copy code">
+                  <svg class="icon-copy" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  <svg class="icon-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><polyline points="20 6 9 17 4 12"/></svg>
+                  <span class="copy-label">copy</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </section>
+</div>
+
+<!-- ── 6. API Reference ─────────────────────────────────────────────────────── -->
+<div class="section-outer alt" id="api-outer">
+  <section class="section" id="api" aria-label="API Reference">
+    <header class="section-header fade-up">
+      <span class="section-label">REST API</span>
+      <h2 class="section-title">REST API <span class="grad-text">at a Glance</span></h2>
+      <p class="section-sub">Full interactive Swagger docs at <code style="font-size:0.9em;color:#93C5FD">http://localhost:8090/docs</code></p>
+    </header>
+
+    <div class="api-grid fade-up d1" role="list">
+
+      <button class="api-card" role="listitem" aria-label="GET /health — Liveness check"
+        data-method="GET" data-path="/health" data-desc="Liveness check. Returns 200 when the API server is up and all dependencies are reachable.">
+        <span class="method-badge m-get" aria-hidden="true">GET</span>
+        <div>
+          <div class="api-card-path">/health</div>
+          <div class="api-card-desc">Liveness check</div>
+        </div>
+      </button>
+
+      <button class="api-card" role="listitem" aria-label="POST /api/analyst/query — Analyst Q&amp;A"
+        data-method="POST" data-path="/api/analyst/query" data-desc="Analyst Q&amp;A with SHAP grounding. Accepts a natural language question and returns a cited response grounded in retrieved model outputs and feature importances.">
+        <span class="method-badge m-post" aria-hidden="true">POST</span>
+        <div>
+          <div class="api-card-path">/api/analyst/query</div>
+          <div class="api-card-desc">Analyst Q&amp;A with SHAP grounding</div>
+        </div>
+      </button>
+
+      <button class="api-card" role="listitem" aria-label="POST /api/analyst/briefing — Portfolio briefing"
+        data-method="POST" data-path="/api/analyst/briefing" data-desc="Portfolio briefing narrative. Generates a cited executive summary of portfolio health, PD distributions, and stress test results.">
+        <span class="method-badge m-post" aria-hidden="true">POST</span>
+        <div>
+          <div class="api-card-path">/api/analyst/briefing</div>
+          <div class="api-card-desc">Portfolio briefing narrative</div>
+        </div>
+      </button>
+
+      <button class="api-card" role="listitem" aria-label="POST /api/applicant/narrative — Decision explanation"
+        data-method="POST" data-path="/api/applicant/narrative" data-desc="Applicant-facing decision explanation. Generates a plain English summary of the credit decision, grounded in retrieved model outputs and fully ECOA/FCRA compliant.">
+        <span class="method-badge m-post" aria-hidden="true">POST</span>
+        <div>
+          <div class="api-card-path">/api/applicant/narrative</div>
+          <div class="api-card-desc">Applicant-facing decision explanation</div>
+        </div>
+      </button>
+
+      <button class="api-card" role="listitem" aria-label="POST /api/applicant/adverse-action — ECOA adverse action"
+        data-method="POST" data-path="/api/applicant/adverse-action" data-desc="ECOA-compliant adverse action notice. Generates a Regulation B / ECOA adverse action notice from verified templates — never synthesized free-form.">
+        <span class="method-badge m-post" aria-hidden="true">POST</span>
+        <div>
+          <div class="api-card-path">/api/applicant/adverse-action</div>
+          <div class="api-card-desc">ECOA-compliant adverse action notice</div>
+        </div>
+      </button>
+
+      <button class="api-card" role="listitem" aria-label="GET /api/audit/{session_id} — Full audit trail"
+        data-method="GET" data-path="/api/audit/{session_id}" data-desc="Full audit trail for a session. Returns the complete inference log including retrieved chunks, confidence scores, suppressed claims, and compliance node outputs.">
+        <span class="method-badge m-get" aria-hidden="true">GET</span>
+        <div>
+          <div class="api-card-path">/api/audit/{session_id}</div>
+          <div class="api-card-desc">Full audit trail for a session</div>
+        </div>
+      </button>
+
+      <button class="api-card" role="listitem" aria-label="GET /api/audit/{session_id}/citations — All citations"
+        data-method="GET" data-path="/api/audit/{session_id}/citations" data-desc="All citations with similarity scores for a session. Returns every source chunk cited in the response, ranked by embedding similarity score.">
+        <span class="method-badge m-get" aria-hidden="true">GET</span>
+        <div>
+          <div class="api-card-path">/api/audit/{session_id}/citations</div>
+          <div class="api-card-desc">All citations with similarity scores</div>
+        </div>
+      </button>
+
+    </div>
+    <p class="api-hint fade-up d2">Click any endpoint to preview &nbsp;·&nbsp; Press <kbd>Esc</kbd> to close</p>
+  </section>
+</div>
+
+<!-- ── 7. RAGAS Evaluation ──────────────────────────────────────────────────── -->
+<div class="section-outer" id="ragas-outer">
+  <section class="section" id="ragas" aria-label="RAGAS Evaluation">
+    <header class="section-header fade-up">
+      <span class="section-label">Evaluated Against 50 Golden Q&amp;A Pairs</span>
+      <h2 class="section-title">Trust <span class="grad-text">the Numbers</span></h2>
+      <p class="section-sub">RAGAS benchmarks run across three session types. Adversarial sessions validate hallucination refusal under attack.</p>
+    </header>
+
+    <div class="ragas-tabs fade-up d1" role="tablist" aria-label="Session type">
+      <button class="ragas-tab active" role="tab" aria-selected="true" aria-controls="ragas-panel" data-session="analyst" id="ragas-btn-analyst">Analyst</button>
+      <button class="ragas-tab" role="tab" aria-selected="false" aria-controls="ragas-panel" data-session="briefing" id="ragas-btn-briefing">Briefing</button>
+      <button class="ragas-tab adv" role="tab" aria-selected="false" aria-controls="ragas-panel" data-session="adversarial" id="ragas-btn-adversarial">Adversarial</button>
+    </div>
+
+    <div id="ragas-panel" class="ragas-normal" aria-live="polite">
+      <div class="ragas-metrics fade-up d2">
+        <div class="ragas-card">
+          <div class="ragas-val" id="ragas-val-0">0.00</div>
+          <div class="ragas-card-label">Faithfulness</div>
+          <div class="ragas-threshold" id="ragas-thr-0">≥ 0.90</div>
+        </div>
+        <div class="ragas-card">
+          <div class="ragas-val" id="ragas-val-1">0.00</div>
+          <div class="ragas-card-label">Answer Relevancy</div>
+          <div class="ragas-threshold" id="ragas-thr-1">≥ 0.80</div>
+        </div>
+        <div class="ragas-card">
+          <div class="ragas-val" id="ragas-val-2">0.00</div>
+          <div class="ragas-card-label">Context Recall</div>
+          <div class="ragas-threshold" id="ragas-thr-2">≥ 0.85</div>
+        </div>
+      </div>
+
+      <div class="ragas-adv-note" id="ragas-adv-note" role="alert" aria-atomic="true">
+        <span class="adv-note-icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </span>
+        <span>
+          <strong>Adversarial mode:</strong> Model must refuse to fabricate answers to trick questions — invented regulations, out-of-context numerics, and protected-class proxies. Higher faithfulness threshold (≥&nbsp;0.95) reflects stricter grounding requirements.
+        </span>
+      </div>
+    </div>
+
+    <p class="ragas-footer fade-up d3">
+      Run against <strong>Azure GPT-4.1</strong> by default. Also supports <strong>Azure GPT-4o</strong> and <strong>Vertex Gemini 1.5 Pro</strong>.
+      Results written to <code style="font-family:var(--mono);font-size:0.82em;color:#93C5FD">tests/eval/results/&lt;timestamp&gt;_&lt;provider&gt;.json</code>
+    </p>
+  </section>
+</div>
+
+<!-- ── 8. Sprint History ──────────────────────────────────────────────────────── -->
+<div class="section-outer alt" id="sprints-outer">
+  <section class="section" id="sprints" aria-label="Sprint History">
+    <header class="section-header fade-up">
+      <span class="section-label">Delivery History</span>
+      <h2 class="section-title">Shipped <span class="grad-text">Sprint by Sprint</span></h2>
+      <p class="section-sub">From core RAG infrastructure to hardened evaluation harness in five sprints.</p>
+    </header>
+
+    <div class="sprint-track fade-up d1" role="list">
+
+      <div class="sprint-item" role="listitem">
+        <div class="sprint-badge" aria-label="Sprint 1">S1</div>
+        <div class="sprint-card">
+          <div class="sprint-title">Core RAG: pgvector ingestion, retriever, chunk ranking</div>
+          <span class="sprint-pill">33 tests</span>
+        </div>
+      </div>
+
+      <div class="sprint-item" role="listitem">
+        <div class="sprint-badge" aria-label="Sprint 2">S2</div>
+        <div class="sprint-card">
+          <div class="sprint-title">LangGraph agent, zero-hallucination layer (CitationEnforcer, ConfidenceScorer)</div>
+          <span class="sprint-pill">27 tests</span>
+        </div>
+      </div>
+
+      <div class="sprint-item" role="listitem">
+        <div class="sprint-badge" aria-label="Sprint 3">S3</div>
+        <div class="sprint-card">
+          <div class="sprint-title">FastAPI endpoints, ECOA validator, SR 11-7 disclosures, audit trail</div>
+          <span class="sprint-pill">40 tests</span>
+        </div>
+      </div>
+
+      <div class="sprint-item" role="listitem">
+        <div class="sprint-badge" aria-label="Sprint 4">S4</div>
+        <div class="sprint-card">
+          <div class="sprint-title">Next.js 15 frontend: Analyst, Query, Applicant, Audit pages</div>
+          <span class="sprint-pill">shipped</span>
+        </div>
+      </div>
+
+      <div class="sprint-item" role="listitem">
+        <div class="sprint-badge" aria-label="Sprint 5">S5</div>
+        <div class="sprint-card">
+          <div class="sprint-title">Hardening: 50 golden Q&amp;As, RAGAS harness, hallucination regression, Docker, CI/CD</div>
+          <span class="sprint-pill">+ evals</span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+</div>
+
+</main>
+
+<!-- ── Footer ──────────────────────────────────────────────────────────────── -->
+<footer role="contentinfo">
+  <div class="footer-inner">
+    <div class="footer-logo">Lucid<em>Credit</em></div>
+    <ul class="footer-links" role="list">
+      <li><a href="https://github.com/swarnabale/lucidcredit/actions" target="_blank" rel="noopener noreferrer">GitHub CI</a></li>
+      <li><a href="http://localhost:8090/docs" target="_blank" rel="noopener noreferrer">API Docs</a></li>
+      <li><a href="#quickstart">Docker Quick Start</a></li>
+    </ul>
+    <p class="footer-stack">
+      Built on <span>FastAPI</span> &middot; <span>LangGraph</span> &middot; <span>pgvector</span> &middot; <span>Next.js 15</span> &middot; <span>Azure OpenAI</span>
+    </p>
+    <p class="footer-license">MIT License &mdash; &copy; 2026 LucidCredit</p>
+  </div>
+</footer>
+
+<!-- ── API Modal ─────────────────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="modal-box" id="modal-box">
+    <button class="modal-close" id="modal-close" aria-label="Close dialog">&#10005;</button>
+    <div class="modal-eyebrow">API Endpoint</div>
+    <h2 class="modal-title" id="modal-title">Endpoint</h2>
+    <div class="modal-method-row">
+      <span class="method-badge" id="modal-badge"></span>
+      <span style="font-size:0.8rem;color:var(--text-dim)">Click the link below to view in Swagger</span>
+    </div>
+    <div class="modal-path" id="modal-path"></div>
+    <p class="modal-desc" id="modal-desc"></p>
+    <a href="http://localhost:8090/docs" target="_blank" rel="noopener noreferrer" class="modal-link" id="modal-link">
+      View in Swagger
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
+    </a>
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  /* ── Reduced motion ─────────────────────────────────────────────────────── */
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ── Canvas particle graph ─────────────────────────────────────────────── */
+  (function initCanvas() {
+    const canvas = document.getElementById('hero-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    let W, H, particles, raf;
+
+    function resize() {
+      W = canvas.width  = canvas.offsetWidth;
+      H = canvas.height = canvas.offsetHeight;
+    }
+
+    function Particle() {
+      this.x  = Math.random() * W;
+      this.y  = Math.random() * H;
+      this.vx = (Math.random() - 0.5) * 0.28;
+      this.vy = (Math.random() - 0.5) * 0.28;
+      this.r  = Math.random() * 2.2 + 0.8;
+    }
+
+    Particle.prototype.update = function() {
+      this.x += this.vx;
+      this.y += this.vy;
+      if (this.x < 0 || this.x > W) this.vx *= -1;
+      if (this.y < 0 || this.y > H) this.vy *= -1;
+    };
+
+    function build() {
+      resize();
+      const count = Math.max(40, Math.min(80, Math.floor((W * H) / 14000)));
+      particles = Array.from({ length: count }, () => new Particle());
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+
+      /* edges */
+      for (let i = 0; i < particles.length; i++) {
+        for (let j = i + 1; j < particles.length; j++) {
+          const dx = particles[i].x - particles[j].x;
+          const dy = particles[i].y - particles[j].y;
+          const d  = Math.sqrt(dx * dx + dy * dy);
+          if (d < 130) {
+            const alpha = (1 - d / 130) * 0.1;
+            ctx.beginPath();
+            ctx.moveTo(particles[i].x, particles[i].y);
+            ctx.lineTo(particles[j].x, particles[j].y);
+            ctx.strokeStyle = `rgba(59,130,246,${alpha})`;
+            ctx.lineWidth = 0.8;
+            ctx.stroke();
+          }
+        }
+      }
+
+      /* nodes */
+      particles.forEach(p => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(16,185,129,0.45)';
+        ctx.fill();
+      });
+    }
+
+    function loop() {
+      if (!reducedMotion) {
+        particles.forEach(p => p.update());
+      }
+      draw();
+      raf = requestAnimationFrame(loop);
+    }
+
+    build();
+    loop();
+
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(build, 200);
+    });
+  })();
+
+  /* ── Navbar scroll reveal ───────────────────────────────────────────────── */
+  (function initNavbar() {
+    const nav = document.getElementById('navbar');
+    let ticking = false;
+    window.addEventListener('scroll', () => {
+      if (!ticking) {
+        requestAnimationFrame(() => {
+          nav.classList.toggle('scrolled', window.scrollY > 80);
+          ticking = false;
+        });
+        ticking = true;
+      }
+    });
+  })();
+
+  /* ── Entrance animations ────────────────────────────────────────────────── */
+  (function initFadeUp() {
+    if (reducedMotion) {
+      document.querySelectorAll('.fade-up').forEach(el => el.classList.add('visible'));
+      return;
+    }
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); obs.unobserve(e.target); } });
+    }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+    document.querySelectorAll('.fade-up').forEach(el => obs.observe(el));
+  })();
+
+  /* ── Quick Start tabs ───────────────────────────────────────────────────── */
+  (function initQSTabs() {
+    const tabRow = document.querySelector('.tab-row');
+    if (!tabRow) return;
+    tabRow.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
+        tabRow.querySelectorAll('.tab-btn').forEach(b => {
+          b.classList.remove('active');
+          b.setAttribute('aria-selected', 'false');
+        });
+        btn.classList.add('active');
+        btn.setAttribute('aria-selected', 'true');
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        const panel = document.getElementById('tab-' + tab);
+        if (panel) panel.classList.add('active');
+      });
+      /* keyboard */
+      btn.addEventListener('keydown', (e) => {
+        const btns = [...tabRow.querySelectorAll('.tab-btn')];
+        const idx  = btns.indexOf(btn);
+        if (e.key === 'ArrowRight' && btns[idx + 1]) { btns[idx + 1].focus(); btns[idx + 1].click(); }
+        if (e.key === 'ArrowLeft'  && btns[idx - 1]) { btns[idx - 1].focus(); btns[idx - 1].click(); }
+      });
+    });
+  })();
+
+  /* ── Copy to clipboard ──────────────────────────────────────────────────── */
+  (function initCopy() {
+    document.querySelectorAll('.copy-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const pre  = btn.closest('.code-wrap').querySelector('.code-block');
+        const text = pre.textContent || pre.innerText;
+        if (!navigator.clipboard) return;
+        navigator.clipboard.writeText(text).then(() => {
+          btn.classList.add('copied');
+          btn.querySelector('.icon-copy').style.display  = 'none';
+          btn.querySelector('.icon-check').style.display = 'inline';
+          btn.querySelector('.copy-label').textContent   = 'copied';
+          setTimeout(() => {
+            btn.classList.remove('copied');
+            btn.querySelector('.icon-copy').style.display  = 'inline';
+            btn.querySelector('.icon-check').style.display = 'none';
+            btn.querySelector('.copy-label').textContent   = 'copy';
+          }, 2000);
+        }).catch(() => {});
+      });
+    });
+  })();
+
+  /* ── Syntax highlighting ────────────────────────────────────────────────── */
+  (function highlightCode() {
+    const BASH_KEYWORDS = ['git', 'docker', 'compose', 'python', 'python3', 'python3\\.11', 'npm', 'alembic', 'pytest', 'uvicorn', 'pip', 'source', 'set', 'cd', 'cp', 'open', 'mkdir', 'nohup'];
+    document.querySelectorAll('.code-block[data-lang]').forEach(pre => {
+      let raw = pre.textContent;
+      /* escape */
+      let html = raw
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      /* comments */
+      html = html.replace(/(#[^\n]*)/g, '<span class="tok-comment">$1</span>');
+      /* strings */
+      html = html.replace(/(["'`])([^"'`\n]*)\1/g, '<span class="tok-str">$1$2$1</span>');
+      /* flags */
+      html = html.replace(/(\s)(-{1,2}[\w-]+)/g, '$1<span class="tok-flag">$2</span>');
+      /* keywords */
+      const kwRe = new RegExp('\\b(' + BASH_KEYWORDS.join('|') + ')\\b', 'g');
+      html = html.replace(kwRe, '<span class="tok-kw">$1</span>');
+      /* urls/paths */
+      html = html.replace(/(https?:\/\/[^\s]+)/g, '<span class="tok-cmd">$1</span>');
+      pre.innerHTML = html;
+    });
+  })();
+
+  /* ── API modal ──────────────────────────────────────────────────────────── */
+  (function initModal() {
+    const overlay   = document.getElementById('modal-overlay');
+    const box       = document.getElementById('modal-box');
+    const closeBtn  = document.getElementById('modal-close');
+    const titleEl   = document.getElementById('modal-title');
+    const badgeEl   = document.getElementById('modal-badge');
+    const pathEl    = document.getElementById('modal-path');
+    const descEl    = document.getElementById('modal-desc');
+    if (!overlay) return;
+
+    function openModal(card) {
+      const method = card.dataset.method;
+      const path   = card.dataset.path;
+      const desc   = card.dataset.desc;
+      titleEl.textContent = path;
+      pathEl.textContent  = method + '  ' + path;
+      descEl.innerHTML    = desc;
+      badgeEl.textContent = method;
+      badgeEl.className   = 'method-badge ' + (method === 'GET' ? 'm-get' : 'm-post');
+      overlay.classList.add('open');
+      document.body.style.overflow = 'hidden';
+      closeBtn.focus();
+    }
+
+    function closeModal() {
+      overlay.classList.remove('open');
+      document.body.style.overflow = '';
+      lastFocused && lastFocused.focus();
+    }
+
+    let lastFocused = null;
+    document.querySelectorAll('.api-card').forEach(card => {
+      card.addEventListener('click', () => { lastFocused = card; openModal(card); });
+      card.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); lastFocused = card; openModal(card); } });
+    });
+
+    closeBtn.addEventListener('click', closeModal);
+    overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
+
+    /* ESC */
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && overlay.classList.contains('open')) closeModal();
+    });
+
+    /* Focus trap */
+    box.addEventListener('keydown', e => {
+      if (e.key !== 'Tab') return;
+      const focusable = [...box.querySelectorAll('button, a, [tabindex="0"]')].filter(el => !el.disabled);
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey) { if (document.activeElement === first) { e.preventDefault(); last.focus(); } }
+      else            { if (document.activeElement === last)  { e.preventDefault(); first.focus(); } }
+    });
+  })();
+
+  /* ── RAGAS counters ─────────────────────────────────────────────────────── */
+  (function initRAGAS() {
+    const data = {
+      analyst:     [{ v: 0.90, t: '≥ 0.90' }, { v: 0.80, t: '≥ 0.80' }, { v: 0.85, t: '≥ 0.85' }],
+      briefing:    [{ v: 0.88, t: '≥ 0.88' }, { v: 0.78, t: '≥ 0.78' }, { v: 0.82, t: '≥ 0.82' }],
+      adversarial: [{ v: 0.95, t: '≥ 0.95' }, { v: 0.60, t: '≥ 0.60' }, { v: 0.80, t: '≥ 0.80' }]
+    };
+
+    let current = 'analyst';
+    let animated = false;
+    const panel  = document.getElementById('ragas-panel');
+    const advNote = document.getElementById('ragas-adv-note');
+    const vals   = [0, 1, 2].map(i => document.getElementById('ragas-val-' + i));
+    const thrs   = [0, 1, 2].map(i => document.getElementById('ragas-thr-' + i));
+
+    function animateCounter(el, target, dur) {
+      if (reducedMotion) { el.textContent = target.toFixed(2); return; }
+      const start = performance.now();
+      function step(now) {
+        const t = Math.min((now - start) / dur, 1);
+        const ease = 1 - Math.pow(1 - t, 3);
+        el.textContent = (ease * target).toFixed(2);
+        if (t < 1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }
+
+    function showSession(session, animate) {
+      const d = data[session];
+      const isAdv = session === 'adversarial';
+      panel.className = isAdv ? 'ragas-adv' : 'ragas-normal';
+      advNote.classList.toggle('show', isAdv);
+      d.forEach((m, i) => {
+        thrs[i].textContent = m.t;
+        if (animate) animateCounter(vals[i], m.v, 1400 + i * 100);
+        else vals[i].textContent = m.v.toFixed(2);
+      });
+    }
+
+    /* Session tabs */
+    const tabRow = document.querySelector('.ragas-tabs');
+    tabRow && tabRow.querySelectorAll('.ragas-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        tabRow.querySelectorAll('.ragas-tab').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
+        btn.classList.add('active');
+        btn.setAttribute('aria-selected', 'true');
+        current = btn.dataset.session;
+        showSession(current, animated);
+      });
+      btn.addEventListener('keydown', e => {
+        const btns = [...tabRow.querySelectorAll('.ragas-tab')];
+        const idx = btns.indexOf(btn);
+        if (e.key === 'ArrowRight' && btns[idx + 1]) { btns[idx + 1].focus(); btns[idx + 1].click(); }
+        if (e.key === 'ArrowLeft'  && btns[idx - 1]) { btns[idx - 1].focus(); btns[idx - 1].click(); }
+      });
+    });
+
+    /* Trigger on scroll into view */
+    const section = document.getElementById('ragas');
+    if (section) {
+      const obs = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && !animated) {
+          animated = true;
+          showSession(current, true);
+          obs.disconnect();
+        }
+      }, { threshold: 0.3 });
+      obs.observe(section);
+    }
+
+    /* Initial state (no animation, counters at 0) */
+    vals.forEach(el => { el.textContent = '0.00'; });
+    thrs.forEach((el, i) => { el.textContent = data.analyst[i].t; });
+  })();
+
+})();
+</script>
+</body>
+</html>
