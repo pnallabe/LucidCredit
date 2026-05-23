@@ -38,8 +38,8 @@ Usage::
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
-from datetime import date, timezone, datetime
+from dataclasses import dataclass
+from datetime import timezone, datetime
 from typing import Dict, List, Optional
 
 import structlog

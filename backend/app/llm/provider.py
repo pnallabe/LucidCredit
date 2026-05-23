@@ -24,7 +24,7 @@ import functools
 from typing import Literal
 
 from langchain_core.language_models import BaseChatModel
-from openai import AsyncAzureOpenAI, AsyncOpenAI
+from openai import AsyncAzureOpenAI
 
 from app.config import get_settings
 

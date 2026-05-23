@@ -17,7 +17,7 @@ from uuid import UUID
 
 import structlog
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.agent.graph import get_graph
 

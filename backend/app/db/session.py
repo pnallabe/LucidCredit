@@ -13,7 +13,6 @@ Usage
 from __future__ import annotations
 
 import uuid
-from datetime import date
 from typing import AsyncGenerator
 
 from sqlalchemy import Column, Date, Index, Integer, String, Text

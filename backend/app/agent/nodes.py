@@ -12,7 +12,6 @@ The only place in the codebase that invokes an LLM is ``reason_node``.
 from __future__ import annotations
 
 import asyncio
-import logging
 import re
 from typing import Literal
 
@@ -1934,7 +1933,6 @@ async def citation_enforcer_node(state: AgentState) -> dict:
     has_db_chunk = any(c.get("source_type") in ("db", "api") for c in graded_chunks)
     if has_domain_knowledge or has_db_chunk:
         import copy as _copy
-        from app.config import Settings
         patched_settings = _copy.copy(get_settings())
         # DB narratives embed less precisely to raw SQL rows; use a lower threshold
         # to avoid suppressing correct analytical sentences about the data.
@@ -2107,7 +2105,6 @@ async def compliance_check_node(state: AgentState) -> dict:
         # Inject FCRA disclosure for any adverse action / decline communication,
         # detected either from context_payload or from the query content itself.
         comm_type: str = context_payload.get("communication_type", "")
-        source: str = context_payload.get("source", "")
         query_text: str = state.get("query", "")
         _ADVERSE_ACTION_QUERY_RE = re.compile(
             r"\b(?:adverse\s+action|decline\s+notice|denial\s+notice|"

@@ -36,7 +36,7 @@ import uuid
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import structlog
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 

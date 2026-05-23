@@ -53,8 +53,6 @@ Run with:
 """
 from __future__ import annotations
 
-import asyncio
-import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -62,8 +60,6 @@ import pytest
 
 from app.agent.tools.sql_tool import (
     SqlSecurityError,
-    _validate_select_only,
-    _validate_tables,
     validate_sql,
 )
 from app.rag.retriever import DENSE_WEIGHT, BM25_WEIGHT, _bm25_scores, _tokenize
@@ -249,7 +245,6 @@ class TestThinFileTool:
 
     @pytest.mark.asyncio
     async def test_d3_returned_chunk_has_required_fields(self):
-        import httpx
         from app.agent.tools.thinfile_tool import fetch_adverse_action_codes
 
         mock_response = MagicMock()
@@ -304,7 +299,6 @@ class TestCrpApiTool:
 
     @pytest.mark.asyncio
     async def test_e2_successful_response_returns_api_chunk(self):
-        import httpx
         from app.agent.tools.crp_api_tool import fetch_portfolio_metrics
 
         mock_response = MagicMock()

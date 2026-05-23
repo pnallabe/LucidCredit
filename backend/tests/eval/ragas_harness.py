@@ -96,8 +96,6 @@ def ragas_llm(provider_name: str) -> Any:
     Build a LangChain BaseChatModel appropriate for the selected provider,
     temporarily overriding Settings to satisfy validation.
     """
-    from unittest.mock import patch
-
     if provider_name == "azure_gpt41":
         from langchain_openai import AzureChatOpenAI
 

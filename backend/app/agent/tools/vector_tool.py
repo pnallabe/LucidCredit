@@ -14,9 +14,7 @@ handle insufficient retrieval gracefully.
 """
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any
 
 from sqlalchemy import text
 
@@ -85,14 +83,6 @@ async def retrieve_policy_docs(
         score = float(row["similarity_score"])
         if score < min_similarity:
             continue
-
-        meta: dict[str, Any] = {}
-        raw_meta = row.get("metadata_json")
-        if raw_meta:
-            try:
-                meta = json.loads(raw_meta) if isinstance(raw_meta, str) else dict(raw_meta)
-            except Exception:
-                pass
 
         source_ref = (
             f"policy_docs:{row['source_path']}#chunk{row['chunk_index']}"

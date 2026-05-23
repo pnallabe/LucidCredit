@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import List
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -650,7 +649,6 @@ class TestAuditEndpoint:
     async def test_E3_valid_session_returns_audit_response(self):
         from httpx import AsyncClient, ASGITransport
         from app.main import app
-        from sqlalchemy.engine import Row
 
         session_uuid = uuid.uuid4()
         now = datetime.now(timezone.utc)

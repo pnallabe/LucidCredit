@@ -202,8 +202,6 @@ async def test_scenario_2_analyst_azure_fails_vertex_succeeds(test_settings: Set
     Azure raises APIStatusError(503). Vertex fallback is invoked and succeeds.
     provider_used must reflect the Vertex model.
     """
-    from app.agent import nodes as nodes_module
-
     request = MagicMock()
     request.status_code = 503
     request.headers = {}
@@ -331,8 +329,6 @@ async def test_scenario_5_analyst_all_providers_fail(test_settings: Settings) ->
     Azure raises 503; Vertex fallback also raises an exception.
     reason_node must return error=ALL_PROVIDERS_UNAVAILABLE.
     """
-    from app.agent import nodes as nodes_module
-
     request = MagicMock()
     request.status_code = 503
     request.headers = {}

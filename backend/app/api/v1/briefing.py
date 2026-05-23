@@ -102,7 +102,6 @@ async def briefing_generate(request: BriefingRequest) -> BriefingResponse:
     passed RAGAS thresholds before Flash can be used.
     """
     session_id = _uuid.uuid4()
-    settings = get_settings()
 
     query_parts = [f"Generate a {request.scope} briefing"]
     if request.filters:

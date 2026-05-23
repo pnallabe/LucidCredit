@@ -212,7 +212,7 @@ async def _call_analytics(question: str, clarifications: dict[str, str] | None =
     rows = data.get("rows") or []
     if not rows:
         sql = data.get("generated_sql", "")
-        msg = f"No data found for this query."
+        msg = "No data found for this query."
         if sql:
             msg += f" SQL attempted: {sql[:300]}"
         return {"status": "no_data", "message": msg, "assumed_defaults": data.get("assumed_defaults") or []}
@@ -426,7 +426,7 @@ def _format_tool_result(question: str, result: dict[str, Any]) -> str:
     elif status == "no_data":
         defaults = result.get("assumed_defaults") or []
         msg = result.get("message", "No data found.")
-        lines = [f"[No Data Found]", f"Question: {question}", msg]
+        lines = ["[No Data Found]", f"Question: {question}", msg]
         if defaults:
             lines.append(f"Assumed defaults: {'; '.join(defaults)}")
         return "\n".join(lines)
