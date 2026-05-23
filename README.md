@@ -3,8 +3,8 @@
 > **Zero-hallucination AI analytical copilot for credit decisions.**  
 > Every claim traces back to a source. Enforced at inference time.
 
-[![CI](https://github.com/swarnabale/lucidcredit/actions/workflows/ci.yml/badge.svg)](https://github.com/swarnabale/lucidcredit/actions/workflows/ci.yml)
-[![Docker](https://github.com/swarnabale/lucidcredit/actions/workflows/docker.yml/badge.svg)](https://github.com/swarnabale/lucidcredit/actions/workflows/docker.yml)
+[![CI](https://github.com/pnallabe/lucidcredit/actions/workflows/ci.yml/badge.svg)](https://github.com/pnallabe/lucidcredit/actions/workflows/ci.yml)
+[![Docker](https://github.com/pnallabe/lucidcredit/actions/workflows/docker.yml/badge.svg)](https://github.com/pnallabe/lucidcredit/actions/workflows/docker.yml)
 [![Landing Page](https://img.shields.io/badge/Landing%20Page-View-6366F1?logo=html5&logoColor=white)](./index.html)
 
 LucidCredit delivers natural language explanations of credit decisions grounded entirely in retrieved data — no parametric hallucination. Every claim traces back to a source document, API response, or database record, enforced at inference time by `CitationEnforcer` and `ConfidenceScorer`. Claims below the confidence threshold are **stripped and logged to the audit trail** — the model cannot cite what it cannot retrieve.
