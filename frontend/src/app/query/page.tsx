@@ -11,6 +11,7 @@
 import * as React from "react";
 import { Send, Terminal, RefreshCw, Sparkles } from "lucide-react";
 import { streamChat } from "@/lib/copilot-client";
+import { ChartBlock, type ChartSpec } from "@/components/ChartBlock";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -289,7 +290,9 @@ function MarkdownText({ text }: { text: string }) {
   const elements: React.ReactNode[] = [];
   let listBuffer: string[] = [];
   let codeBuffer: string[] = [];
+  let chartBuffer: string[] = [];
   let inCode = false;
+  let inChart = false;
 
   function flushList() {
     if (!listBuffer.length) return;
@@ -303,6 +306,17 @@ function MarkdownText({ text }: { text: string }) {
       </ul>
     );
     listBuffer = [];
+  }
+
+  function flushChart() {
+    if (!chartBuffer.length) return;
+    try {
+      const spec: ChartSpec = JSON.parse(chartBuffer.join("\n"));
+      elements.push(<ChartBlock key={elements.length} spec={spec} />);
+    } catch {
+      // Malformed JSON — skip silently (chart data is still streaming in)
+    }
+    chartBuffer = [];
   }
 
   function flushCode() {
@@ -319,6 +333,22 @@ function MarkdownText({ text }: { text: string }) {
   }
 
   for (const line of lines) {
+    // ── chart block ──
+    if (!inCode && !inChart && line.startsWith("```chart")) {
+      flushList();
+      inChart = true;
+      continue;
+    }
+    if (inChart) {
+      if (line === "```") {
+        flushChart();
+        inChart = false;
+      } else {
+        chartBuffer.push(line);
+      }
+      continue;
+    }
+    // ── regular code block ──
     if (line.startsWith("```")) {
       if (inCode) {
         flushCode();
@@ -368,6 +398,7 @@ function MarkdownText({ text }: { text: string }) {
   }
   flushList();
   flushCode();
+  flushChart();
   return <>{elements}</>;
 }
 

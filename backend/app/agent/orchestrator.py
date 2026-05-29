@@ -35,12 +35,181 @@ from __future__ import annotations
 
 import json
 import logging
+import re as _re
 from typing import Any, AsyncGenerator
 
 import httpx
 import openai
 
 from app.config import get_settings
+
+# ---------------------------------------------------------------------------
+# Chart detection helpers
+# ---------------------------------------------------------------------------
+
+_TREND_RE = _re.compile(
+    r"\btrend\b|\bover\s+time\b|\bby\s+(month|quarter|year|week|day)\b|"
+    r"\bhistorical\b|\bmonthly\b|\bquarterly\b|\byearly\b|\btime\s+series\b|"
+    r"\bgrowth\b|\bchange\s+over\b|\bprogression\b|\bevolution\b",
+    _re.IGNORECASE,
+)
+
+_COMPARISON_RE = _re.compile(
+    r"\bcompare\b|\bcomparison\b|\bvs\.?\b|\bversus\b|"
+    r"\bby\s+(product|type|tier|grade|region|state|channel|vintage|segment|category)\b|"
+    r"\bbreak\s*down\b|\bdistribution\b|\bbreakdown\b|"
+    r"\branking\b|\btop\s+\d+\b|\bwhich\s+\w+\s+has\b|\bper\s+\w+\b",
+    _re.IGNORECASE,
+)
+
+_CHART_COLORS = ["#6366f1", "#22d3ee", "#f59e0b", "#34d399", "#f87171", "#a78bfa"]
+
+
+def _detect_chart_type(question: str, rows: list[dict]) -> str | None:
+    """Return 'line', 'bar', or None based on question semantics and data shape."""
+    if not rows or len(rows) < 2:
+        return None
+    cols = list(rows[0].keys())
+    # Time-series columns → line chart
+    time_cols = [
+        c for c in cols
+        if any(t in c.lower() for t in ["month", "quarter", "year", "date", "period", "week", "day"])
+    ]
+    if _TREND_RE.search(question) or time_cols:
+        return "line"
+    if _COMPARISON_RE.search(question):
+        return "bar"
+    # Fallback: label column + numeric column(s) → bar
+    str_cols = [c for c in cols if isinstance(rows[0].get(c), str)]
+    num_cols = [
+        c for c in cols
+        if isinstance(rows[0].get(c), (int, float))
+        or (isinstance(rows[0].get(c), str) and _is_numeric_str(rows[0].get(c, "")))
+    ]
+    if str_cols and num_cols:
+        return "bar"
+    return None
+
+
+def _is_numeric_str(s: str) -> bool:
+    try:
+        float(str(s).replace(",", "").replace("%", ""))
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def _guess_x_key(rows: list[dict]) -> str:
+    """Pick the best x-axis column (time or categorical)."""
+    cols = list(rows[0].keys())
+    # Prefer explicit time columns
+    for c in cols:
+        if any(t in c.lower() for t in ["month", "quarter", "year", "date", "period", "week", "day"]):
+            return c
+    # Prefer string columns
+    for c in cols:
+        if isinstance(rows[0].get(c), str):
+            return c
+    return cols[0]
+
+
+def _guess_numeric_cols(rows: list[dict], x_key: str) -> list[str]:
+    """Return up to 4 numeric columns, excluding x_key."""
+    cols = list(rows[0].keys())
+    numeric = []
+    for c in cols:
+        if c == x_key:
+            continue
+        val = rows[0].get(c)
+        if isinstance(val, (int, float)):
+            numeric.append(c)
+        elif isinstance(val, str) and _is_numeric_str(val):
+            numeric.append(c)
+    return numeric[:4]
+
+
+def _coerce_numeric(val: Any) -> float | None:
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        # Guard against JSON-invalid floats
+        import math
+        if math.isnan(val) or math.isinf(val):
+            return None
+        return float(val)
+    if isinstance(val, str):
+        try:
+            return float(val.replace(",", "").replace("%", ""))
+        except (ValueError, TypeError):
+            return None
+    return None
+
+
+def _guess_y_format(y_cols: list[str]) -> str:
+    combined = " ".join(y_cols).lower()
+    if any(w in combined for w in ["balance", "amount", "revenue", "fee", "usd", "dollar", "outstanding", "limit"]):
+        return "currency"
+    if any(w in combined for w in ["rate", "ratio", "pct", "percent"]):
+        return "percent"
+    return "number"
+
+
+def _build_chart_spec(question: str, result: dict) -> dict | None:
+    """Build a chart spec dict from an analytics result, or None if not applicable."""
+    rows = result.get("rows") or []
+    chart_type = _detect_chart_type(question, rows)
+    if not chart_type:
+        return None
+
+    plot_rows = rows[:60]
+    x_key = _guess_x_key(plot_rows)
+    y_cols = _guess_numeric_cols(plot_rows, x_key)
+    if not y_cols:
+        return None
+
+    # Coerce numeric values and drop rows where all y values are None
+    clean_rows = []
+    for row in plot_rows:
+        clean: dict = {x_key: str(row.get(x_key, ""))}
+        has_value = False
+        for c in y_cols:
+            v = _coerce_numeric(row.get(c))
+            clean[c] = v
+            if v is not None:
+                has_value = True
+        if has_value:
+            clean_rows.append(clean)
+
+    if len(clean_rows) < 2:
+        return None
+
+    y_keys = [
+        {"key": c, "label": c.replace("_", " ").title(), "color": _CHART_COLORS[i % len(_CHART_COLORS)]}
+        for i, c in enumerate(y_cols)
+    ]
+
+    title = question.strip().rstrip("?")
+    if len(title) > 90:
+        title = title[:87] + "..."
+
+    sources: list[dict] = [{"label": "Portfolio Analytics API", "type": "api"}]
+    sql = result.get("sql", "")
+    if sql:
+        sources[0]["sql"] = sql[:500]
+    assumed = result.get("assumed_defaults") or []
+    if assumed:
+        sources.append({"label": "Assumed scope", "note": "; ".join(assumed)})
+
+    return {
+        "type": chart_type,
+        "title": title,
+        "x_key": x_key,
+        "y_keys": y_keys,
+        "data": clean_rows,
+        "y_format": _guess_y_format(y_cols),
+        "row_count": result.get("row_count", len(rows)),
+        "sources": sources,
+    }
 
 log = logging.getLogger(__name__)
 
@@ -323,6 +492,8 @@ async def run_turn(
     first_msg = first_response.choices[0].message
 
     # ── Phase 2: execute tool calls if any ──
+    _chart_spec: dict | None = None  # first chart-worthy result wins
+
     if first_msg.tool_calls:
         # Append assistant's tool-call message to the thread
         messages.append(first_msg.model_dump(exclude_unset=True))  # type: ignore[arg-type]
@@ -335,6 +506,10 @@ async def run_turn(
             log.info("orchestrator: calling query_portfolio q=%r clarifications=%r", tool_question[:80], tool_clarifs)
             result = await _call_analytics(tool_question, tool_clarifs or None)
 
+            # Build chart spec for the first data result that warrants visualization
+            if result.get("status") == "data" and _chart_spec is None:
+                _chart_spec = _build_chart_spec(tool_question, result)
+
             # Format tool result as a readable string for the LLM
             tool_content = _format_tool_result(tool_question, result)
 
@@ -343,6 +518,11 @@ async def run_turn(
                 "tool_call_id": tc.id,
                 "content": tool_content,
             })
+
+    # ── Phase 2b: emit chart block (before LLM text) ──
+    if _chart_spec is not None:
+        chart_json = json.dumps(_chart_spec, separators=(",", ":"), default=str)
+        yield f"```chart\n{chart_json}\n```\n\n"
 
     # ── Phase 3: stream the final response ──
     accumulated = ""
