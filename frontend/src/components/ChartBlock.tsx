@@ -115,6 +115,50 @@ const CustomTooltip = ({
 };
 
 // ---------------------------------------------------------------------------
+// Data normalisation
+// ---------------------------------------------------------------------------
+
+/**
+ * Ensures every x-axis tick is present for every series.
+ * Missing values become `null` so Recharts renders a visible gap
+ * instead of connecting across non-overlapping product-type ranges.
+ */
+function normaliseData(
+  data: Record<string, unknown>[],
+  xKey: string,
+  yKeys: ChartYKey[]
+): Record<string, unknown>[] {
+  if (data.length === 0) return data;
+
+  // Collect all x values in original order (deduplicated)
+  const seen = new Set<unknown>();
+  const xValues: unknown[] = [];
+  for (const row of data) {
+    if (!seen.has(row[xKey])) {
+      seen.add(row[xKey]);
+      xValues.push(row[xKey]);
+    }
+  }
+
+  // Build a lookup: xValue → row
+  const byX = new Map<unknown, Record<string, unknown>>();
+  for (const row of data) {
+    const existing = byX.get(row[xKey]) ?? {};
+    byX.set(row[xKey], { ...existing, ...row });
+  }
+
+  // For each x position, ensure every y-key is present (null when absent)
+  return xValues.map((xv) => {
+    const row = byX.get(xv) ?? { [xKey]: xv };
+    const filled: Record<string, unknown> = { [xKey]: xv };
+    for (const yk of yKeys) {
+      filled[yk.key] = yk.key in row ? row[yk.key] : null;
+    }
+    return filled;
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Chart sub-components
 // ---------------------------------------------------------------------------
 
@@ -124,8 +168,9 @@ const legendStyle = { fontSize: 11, color: "#94a3b8" };
 const commonMargin = { top: 8, right: 16, left: 4, bottom: 4 };
 
 function renderLineChart(spec: ChartSpec) {
+  const data = normaliseData(spec.data, spec.x_key, spec.y_keys);
   return (
-    <LineChart data={spec.data} margin={commonMargin}>
+    <LineChart data={data} margin={commonMargin}>
       <CartesianGrid {...gridStyle} vertical={false} />
       <XAxis
         dataKey={spec.x_key}
@@ -153,6 +198,7 @@ function renderLineChart(spec: ChartSpec) {
           strokeWidth={2}
           dot={spec.data.length <= 24 ? { r: 3, fill: yk.color } : false}
           activeDot={{ r: 5, strokeWidth: 0 }}
+          connectNulls={false}
         />
       ))}
     </LineChart>
@@ -160,8 +206,9 @@ function renderLineChart(spec: ChartSpec) {
 }
 
 function renderBarChart(spec: ChartSpec) {
+  const data = normaliseData(spec.data, spec.x_key, spec.y_keys);
   return (
-    <BarChart data={spec.data} margin={commonMargin}>
+    <BarChart data={data} margin={commonMargin}>
       <CartesianGrid {...gridStyle} vertical={false} />
       <XAxis
         dataKey={spec.x_key}
@@ -195,8 +242,9 @@ function renderBarChart(spec: ChartSpec) {
 }
 
 function renderAreaChart(spec: ChartSpec) {
+  const data = normaliseData(spec.data, spec.x_key, spec.y_keys);
   return (
-    <AreaChart data={spec.data} margin={commonMargin}>
+    <AreaChart data={data} margin={commonMargin}>
       <defs>
         {spec.y_keys.map((yk) => (
           <linearGradient key={yk.key} id={`grad-${yk.key}`} x1="0" y1="0" x2="0" y2="1">
@@ -233,6 +281,7 @@ function renderAreaChart(spec: ChartSpec) {
           fill={`url(#grad-${yk.key})`}
           dot={false}
           activeDot={{ r: 5, strokeWidth: 0 }}
+          connectNulls={false}
         />
       ))}
     </AreaChart>
