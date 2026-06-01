@@ -195,7 +195,9 @@ def _build_chart_spec(question: str, result: dict) -> dict | None:
     sources: list[dict] = [{"label": "Portfolio Analytics API", "type": "api"}]
     sql = result.get("sql", "")
     if sql:
-        sources[0]["sql"] = sql[:500]
+        # Strip internal newlines so json.dumps doesn't emit \n sequences
+        # that get corrupted by the SSE double-encode/decode round-trip.
+        sources[0]["sql"] = sql[:500].replace("\n", " ").replace("\r", "")
     assumed = result.get("assumed_defaults") or []
     if assumed:
         sources.append({"label": "Assumed scope", "note": "; ".join(assumed)})
