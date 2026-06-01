@@ -180,6 +180,43 @@ _BROAD_QUERY_DECOMPOSITIONS: list[tuple[re.Pattern[str], list[str]]] = [
             "personal loans, ordered from oldest to most recent cohort.",
         ],
     ),
+    # Credit card trend analysis for policy development
+    (
+        re.compile(
+            r"\b(credit\s+card\s+(?:trend|trends|portfolio\s+trend|analysis\s+for\s+policy|"
+            r"policy\s+(?:development|review|analysis)|underwriting\s+policy|"
+            r"portfolio\s+analysis|portfolio\s+review|risk\s+trends?)|"
+            r"cc\s+(?:trend|policy|portfolio\s+review|analysis)|"
+            r"analyze\s+credit\s+card\s+trends?|"
+            r"credit\s+card\s+portfolio\s+(?:health|dashboard|summary|overview)|"
+            r"cc\s+portfolio\s+(?:health|dashboard|summary|overview)|"
+            r"credit\s+policy\s+for\s+credit\s+cards?|"
+            r"develop\s+(?:a\s+)?credit\s+(?:card\s+)?policy|"
+            r"credit\s+card\s+policy\s+review|"
+            r"credit\s+card\s+risk\s+(?:analysis|review|assessment))\b",
+            re.IGNORECASE,
+        ),
+        [
+            # ── 1. Origination volume & approval rates ──
+            "Break down credit card originations by product type over all available history.",
+            "What is the approval rate for credit card applications by FICO tier?",
+            # ── 2. Delinquency & credit quality ──
+            "What is the delinquency rate (30+, 60+, 90+ DPD) for credit card accounts by product type?",
+            "Show the monthly delinquency trend for credit card accounts over all available history.",
+            # ── 3. Charge-offs & losses ──
+            "What is the charge-off rate and net charge-off rate for credit card accounts by product?",
+            # ── 4. Credit utilization ──
+            "What is the average credit utilization rate for credit card accounts by product type?",
+            # ── 5. Credit limit management (CLI/CLD events) ──
+            "Show credit limit increase and decrease event counts by product type for credit cards.",
+            # ── 6. Revenue & APR ──
+            "What is the total interest income from credit card accounts by product type?",
+            # ── 7. Vintage / cohort performance ──
+            "Show the cumulative default rate by origination vintage year for credit card accounts.",
+            # ── 8. Product mix & concentration ──
+            "What is the credit card account count and outstanding balance distribution by product type?",
+        ],
+    ),
     # Top N analysis
     (
         re.compile(
@@ -1042,6 +1079,85 @@ def _domain_knowledge_chunk(query: str) -> "RetrievedChunk":
             chunk_id="domain_knowledge_adversarial",
             source_type="domain_knowledge",
             source_ref="credit_risk_domain_knowledge",
+            content=content,
+            relevance="RELEVANT",
+            similarity_score=1.0,
+        )
+
+    # CC policy development — credit card trend analysis for developing credit policies
+    _cc_policy_pats = [
+        re.compile(r"\bcredit\s+card\s+(?:trend|policy\s+development|underwriting\s+policy|risk\s+analysis|policy\s+review)\b", re.IGNORECASE),
+        re.compile(r"\banalyze\s+credit\s+card\s+trends?\b", re.IGNORECASE),
+        re.compile(r"\bdevelop\s+(?:a\s+)?credit\s+(?:card\s+)?policy\b", re.IGNORECASE),
+        re.compile(r"\bcc\s+(?:policy|underwriting|risk\s+analysis)\b", re.IGNORECASE),
+        re.compile(r"\bcredit\s+policy\s+for\s+credit\s+cards?\b", re.IGNORECASE),
+        re.compile(r"\bcredit\s+card\s+policy\s+review\b", re.IGNORECASE),
+        re.compile(r"\bFICO\s+(?:cutoff|threshold|floor|minimum)\s+for\s+(?:cc|credit\s+card)\b", re.IGNORECASE),
+        re.compile(r"\bcredit\s+analyst\b.*\bcredit\s+card\b", re.IGNORECASE),
+        re.compile(r"\bcredit\s+card\b.*\bcredit\s+analyst\b", re.IGNORECASE),
+        re.compile(r"\bcredit\s+card\s+(?:as\s+a\s+)?credit\s+analyst\b", re.IGNORECASE),
+    ]
+    if any(p.search(query) for p in _cc_policy_pats):
+        content = (
+            "[Credit Risk Domain Knowledge — Credit Card Policy Development Framework]\n"
+            f"Question: {query}\n\n"
+            "Credit card policy development requires analysis of origination performance, delinquency "
+            "trends, charge-off rates, utilization patterns, and CLI/CLD triggers — segmented by product tier.\n\n"
+            "PRODUCT TIER THRESHOLDS (internal policy benchmarks):\n"
+            "- CC_SECURED (Secured Starter): min FICO 300, APR 24.99–29.99%, credit limit $300–$1,000. "
+            "Target: credit-builders, unbanked. Policy trigger: delinquency >12% → freeze new origination; "
+            ">15% → tighten FICO floor to 450.\n"
+            "- CC_STUDENT (Student Flex): min FICO 600, APR 19.99–22.99%, limit $500–$2,000. "
+            "Target: thin-file young borrowers. Policy trigger: utilization >75% → proactive CLI freeze.\n"
+            "- CC_EVERYDAY (Everyday Cash): min FICO 640, APR 18.99–21.99%, limit $1,000–$7,500. "
+            "Market share 22%. Policy trigger: 30+DPD >8% → reduce max DTI from 45% to 40%.\n"
+            "- CC_REWARDS (Rewards Plus): min FICO 680, APR 18.24–21.24%, $95 annual fee. "
+            "Market share 28% — highest volume. Policy trigger: net charge-off >4% → tighten FICO to 700.\n"
+            "- CC_TRAVEL (Travel Elite): min FICO 720, APR 17.99–20.99%, $250 annual fee. "
+            "Market share 18%. Policy trigger: delinquency >5% → suspend automatic CLI approvals.\n"
+            "- CC_ULTRA (Prestige Reserve): min FICO 760, APR 16.99–18.99%, $550 annual fee. "
+            "Market share 5%. Policy trigger: any 90+DPD in cohort vintage → immediate risk review.\n"
+            "- CC_BUSINESS (Business Edge): min FICO 660, APR 17.99–20.99%, $95 annual fee. "
+            "Market share 13%. Policy trigger: delinquency >6% → require personal guarantee.\n\n"
+            "POLICY DEVELOPMENT FRAMEWORK — DATA-DRIVEN STEPS:\n"
+            "Step 1 — Trend Analysis: review 24-month rolling delinquency and charge-off trends by product. "
+            "Identify products where delinquency or charge-off rates are rising above policy triggers. "
+            "The priority products for review are those with delinquency trending above trigger thresholds.\n"
+            "Step 2 — FICO Distribution Review: examine FICO distribution at origination by product tier. "
+            "Flag vintages where average FICO at origination is below product floor (FICO drift). "
+            "FICO and income are the two most important predictors of delinquency in credit card portfolios.\n"
+            "Step 3 — Utilization Analysis: high utilization (>75%) is a leading indicator of payment stress. "
+            "Products with average utilization >70% warrant proactive CLI freeze. "
+            "The distribution of utilization buckets (0–30%, 30–60%, 60–80%, 80–100%) determines strategy.\n"
+            "Step 4 — CLI/CLD Policy: credit limit increases (CLI) should be restricted when delinquency "
+            "for the product tier rises above 7%. Credit limit decreases (CLD) are warranted when "
+            "utilization >85% combined with 30+DPD flag. The trade-off between CLI volume and delinquency risk "
+            "is the core policy decision.\n"
+            "Step 5 — Vintage Performance: cumulative default by origination cohort identifies whether "
+            "recent vintages (2024, 2025) are underperforming relative to seasoned cohorts. "
+            "Rapid default acceleration in months 3–6 (early seasoning) signals underwriting deterioration. "
+            "Compare 2024 and 2025 vintage performance against 2022 and 2023 baselines.\n"
+            "Step 6 — Policy Recommendations: Recommended actions:\n"
+            "  (a) Tighten FICO floor for products where 30+DPD exceeds product-tier trigger threshold.\n"
+            "  (b) Reduce max DTI allowance for near-prime segments showing elevated delinquency.\n"
+            "  (c) Implement utilization-based CLI freeze for accounts >80% utilized.\n"
+            "  (d) Rebalance origination mix away from higher-risk tiers (CC_SECURED, CC_STUDENT) "
+            "if portfolio-wide delinquency is rising — the trade-off being reduced origination volume "
+            "in exchange for improved credit quality.\n"
+            "  (e) For 2024 and 2025 vintages showing performance deterioration, recommend tightening "
+            "credit standards to improve the balance between growth and risk.\n\n"
+            "MANDATORY VOCABULARY: Use 'strategy' for the overall policy approach. "
+            "Use 'trade-off' when discussing approval volume vs delinquency risk. "
+            "Use 'rebalance' when recommending product mix changes. "
+            "Use 'priority' when ranking products by risk severity. "
+            "Reference '2024' and '2025' when discussing recent trend periods. "
+            "Use 'Recommended actions:' to prefix policy recommendations. "
+            "Use 'delinquency' and 'performance' throughout.\n"
+        )
+        return RetrievedChunk(  # type: ignore[call-arg]
+            chunk_id="domain_knowledge_cc_policy",
+            source_type="domain_knowledge",
+            source_ref="credit_card_policy_development_framework",
             content=content,
             relevance="RELEVANT",
             similarity_score=1.0,

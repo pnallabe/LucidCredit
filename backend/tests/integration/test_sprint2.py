@@ -474,6 +474,7 @@ class TestPersistSessionNode:
         mock_session = AsyncMock()
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
+        mock_session.add = MagicMock()  # add() is sync in SQLAlchemy
 
         with patch("app.config.get_settings", return_value=_MOCK_SETTINGS), \
              patch("app.db.session.AsyncSessionLocal", return_value=mock_session), \
@@ -528,6 +529,7 @@ class TestPersistSessionNode:
         mock_session = AsyncMock()
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
+        mock_session.add = MagicMock()  # add() is sync in SQLAlchemy
 
         with patch("app.config.get_settings", return_value=_MOCK_SETTINGS), \
              patch("app.db.session.AsyncSessionLocal", return_value=mock_session), \
@@ -576,6 +578,7 @@ class TestPersistSessionNode:
         mock_session = AsyncMock()
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
+        mock_session.add = MagicMock()  # add() is sync in SQLAlchemy
 
         with patch("app.config.get_settings", return_value=_MOCK_SETTINGS), \
              patch("app.db.session.AsyncSessionLocal", return_value=mock_session), \

@@ -1,0 +1,59 @@
+name: Live Integration Tests
+
+# Run manually when both external services are available (analytics API + LucidCredit backend).
+# NOT triggered on push/PR — these tests require real credentials and running services.
+on:
+  workflow_dispatch:
+    inputs:
+      lucidcredit_url:
+        description: "LucidCredit backend URL (default: http://localhost:8090)"
+        required: false
+        default: "http://localhost:8090"
+      analytics_url:
+        description: "Analytics API URL (default: http://localhost:8001)"
+        required: false
+        default: "http://localhost:8001"
+
+jobs:
+  live-integration:
+    name: Live Integration (requires running services)
+    runs-on: ubuntu-latest
+
+    env:
+      LUCIDCREDIT_API_URL: ${{ github.event.inputs.lucidcredit_url }}
+      ANALYTICS_API_URL:   ${{ github.event.inputs.analytics_url }}
+      ANALYTICS_SERVICE_KEY: ${{ secrets.ANALYTICS_SERVICE_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install httpx pytest pytest-asyncio
+
+      - name: Run e2e chain audit (analytics API + full LucidCredit chain)
+        run: python3 tests/e2e_chain_audit.py
+        continue-on-error: true   # report results without blocking
+
+      - name: Run chatbot chain tests (LucidCredit /v1/query/analyst)
+        run: python3 tests/chatbot_chain_test.py
+        continue-on-error: true   # report results without blocking
+
+      - name: Run NL→SQL analytics integration tests (pytest)
+        run: |
+          cd backend
+          pytest ../tests/integration/test_nl_sql_analytics.py -v --tb=short
+        continue-on-error: true
+
+      - name: Run reasoning trace integration tests (pytest)
+        run: |
+          cd backend
+          pytest ../tests/integration/test_reasoning_trace.py -v --tb=short
+        continue-on-error: true

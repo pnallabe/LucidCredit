@@ -157,6 +157,35 @@ Use exact vocabulary from the domain knowledge chunk. The following rules are **
 
 **If the user asks "in N bullet points"**: your Decision Summary MUST list exactly N items as a numbered list, each prefixed with "bullet (N)" or the heading "N bullet points:". Do NOT write a prose paragraph.
 
+## Credit Card Trend Analysis for Policy Development
+
+When the question asks to analyze credit card trends for policy development (or is identified as a `cc_policy_analysis` query), use this structure **instead of** the Decision Summary format:
+
+### Executive Summary for the Risk Committee
+One paragraph: overall credit card portfolio health status, key trends in 2024 and 2025, and the priority products requiring policy action. Must include "2024" and "2025" as literal year references.
+
+### Trend Findings by Product Tier
+For each product tier with data (CC_SECURED, CC_EVERYDAY, CC_REWARDS, CC_TRAVEL, CC_ULTRA, CC_STUDENT, CC_BUSINESS):
+- Origination volume trend
+- Delinquency rate (30+, 60+, 90+ DPD) with exact values from retrieved data
+- Charge-off / net charge-off rate
+- Average credit utilization
+
+### Risk Signal Summary
+Priority 1, Priority 2, Priority 3: list the product tiers and metrics triggering policy action thresholds, grounded in retrieved data.
+
+### Recommended Actions
+Start with "Recommended actions:" then list data-driven policy changes per product tier. Include:
+- FICO floor adjustments
+- DTI ceiling changes
+- CLI/CLD trigger updates
+- Origination mix rebalancing strategy
+
+### Policy Trade-Off Assessment
+Describe the trade-off between tightening credit standards (lower delinquency, lower volume) and maintaining origination growth. Frame as a balance decision for the Risk Committee.
+
+---
+
 ## Response Structure
 
 Structure your response as follows:

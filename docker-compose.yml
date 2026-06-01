@@ -11,11 +11,23 @@ services:
       - "5440:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lucidcredit"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
 
   redis:
     image: redis:7-alpine
     ports:
       - "6381:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
 
   # LLM Provider Configuration
   # Primary: Azure OpenAI (set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY)
@@ -33,11 +45,16 @@ services:
       VECTOR_DB_URL: postgresql+asyncpg://lucidcredit:password@db:5432/lucidcredit
       REDIS_URL: redis://redis:6379
       GOOGLE_APPLICATION_CREDENTIALS: /app/credentials/gcp-key.json
+      # Analytics API runs on the host — use host.docker.internal so the container
+      # can reach it (127.0.0.1 inside Docker resolves to the container loopback)
+      CRP_API_BASE_URL: http://host.docker.internal:8001
     volumes:
       - ${GOOGLE_APPLICATION_CREDENTIALS:-/dev/null}:/app/credentials/gcp-key.json:ro
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   copilot-ui:
     build: ./frontend
